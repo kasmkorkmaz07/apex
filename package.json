@@ -1,0 +1,9 @@
+{
+  "name": "apex-muhasebe",
+  "version": "1.0.113",
+  "description": "Apex muhasebe yonetim programi",
+  "main": "main.js",
+  "author": "Kasim Muhasebe",
+  "license": "UNLICENSED",
+  "private": true
+}
