@@ -4161,15 +4161,25 @@ function pruneStoreHistoryForStorage() {
   });
 }
 
-function syncPayloadData(data) {
+function syncTrackPayloadData(data) {
   const payload = JSON.parse(JSON.stringify(normalizeProfileData(data || {})));
-  // Undo/redo history can grow to several MB and Baserow long_text cells are limited
-  // to 1,000,000 characters. It is local convenience state, not shared business data.
+  // Undo/redo history and long audit trails are local convenience state. Sending them
+  // to Baserow made large grouped declaration files hit the field-size limit.
   payload.undoStack = [];
   payload.redoStack = [];
-  payload.auditLog = Array.isArray(payload.auditLog) ? payload.auditLog.slice(-250) : [];
-  payload.activityLog = Array.isArray(payload.activityLog) ? payload.activityLog.slice(-150) : [];
+  payload.auditLog = Array.isArray(payload.auditLog) ? payload.auditLog.slice(-25) : [];
+  payload.activityLog = Array.isArray(payload.activityLog) ? payload.activityLog.slice(-25) : [];
+  const groups = {};
+  Object.entries(payload.groups || {}).forEach(([id, group]) => {
+    groups[id] = syncTrackPayloadData(group);
+    groups[id].label = group?.label || groups[id].label || 'Grup';
+  });
+  payload.groups = groups;
   return payload;
+}
+
+function syncPayloadData(data) {
+  return syncTrackPayloadData(data);
 }
 
 async function responseError(prefix, res) {
@@ -8666,7 +8676,7 @@ function tgMergePayload(localPayload, remotePayload) {
 async function tgReadRemote() {
   if (!isBaserowSyncConfigured()) return null;
   const row = await baserowEnsureRow(TAHAKKUK_SYNC_PROFILE, TAHAKKUK_SYNC_TYPE);
-  return safeJsonObject(row.data, null);
+  return await decodeSyncDataFromBaserow(row.data, null);
 }
 
 async function tgWriteRemote(payload) {
