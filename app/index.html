@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="tr">
 <head>
 <meta charset="UTF-8">
@@ -4072,7 +4072,57 @@ function safeJsonObject(raw, fallback = {}) {
     return fallback;
   }
 }
+function bytesToBase64String(bytes) {
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
+}
 
+function base64StringToBytes(value) {
+  const binary = atob(String(value || ''));
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+async function gzipTextBase64(text) {
+  if (!('CompressionStream' in window)) return '';
+  const stream = new Blob([text]).stream().pipeThrough(new CompressionStream('gzip'));
+  const buffer = await new Response(stream).arrayBuffer();
+  return bytesToBase64String(new Uint8Array(buffer));
+}
+
+async function gunzipTextBase64(value) {
+  if (!('DecompressionStream' in window)) throw new Error('Bu Apex sürümü sıkıştırılmış Baserow verisini açamıyor. Apex’i güncelleyin.');
+  const stream = new Blob([base64StringToBytes(value)]).stream().pipeThrough(new DecompressionStream('gzip'));
+  return await new Response(stream).text();
+}
+
+async function encodeSyncDataForBaserow(data) {
+  const json = JSON.stringify(data || {});
+  if (json.length < 850000) return json;
+  const compressed = await gzipTextBase64(json);
+  if (compressed && compressed.length < json.length) return `apex-gzip-json-v1:${compressed}`;
+  return json;
+}
+
+async function decodeSyncDataFromBaserow(raw, fallback = {}) {
+  if (!raw) return fallback;
+  if (typeof raw === 'object') return raw;
+  const text = String(raw || '');
+  if (text.startsWith('apex-gzip-json-v1:')) {
+    try {
+      return safeJsonObject(await gunzipTextBase64(text.slice('apex-gzip-json-v1:'.length)), fallback);
+    } catch(e) {
+      console.warn('[Apex sync] Sıkıştırılmış Baserow verisi açılamadı', e);
+      return fallback;
+    }
+  }
+  return safeJsonObject(text, fallback);
+}
 function serializedLength(value) {
   try {
     return JSON.stringify(value || null).length;
@@ -4300,9 +4350,12 @@ async function baserowFindRow(profile, type) {
   const rows = data.results || [];
   const matches = rows.filter(row => row.profile === profile && row.beyanname_type === type);
   if (matches.length === 0) return null;
+  for (const row of matches) {
+    row.__apexHasData = hasProfileData(await decodeSyncDataFromBaserow(row.data, {}));
+  }
   matches.sort((a, b) => {
-    const aHas = hasProfileData(safeJsonObject(a.data, {}));
-    const bHas = hasProfileData(safeJsonObject(b.data, {}));
+    const aHas = Boolean(a.__apexHasData);
+    const bHas = Boolean(b.__apexHasData);
     if (aHas !== bHas) return bHas ? 1 : -1;
     return (b.id || 0) - (a.id || 0);
   });
@@ -4403,14 +4456,14 @@ async function writeRemoteApexSettings(payload) {
     body: JSON.stringify({
       profile: APEX_SETTINGS_SYNC_PROFILE,
       beyanname_type: APEX_SETTINGS_SYNC_TYPE,
-      data: JSON.stringify(payload)
+      data: await encodeSyncDataForBaserow(payload)
     })
   });
   if (!res.ok) throw await responseError('Baserow ayar kayıt hatasi', res);
 }
 
-function parseRemoteApexSettings(raw) {
-  return safeJsonObject(raw, null);
+async function parseRemoteApexSettings(raw) {
+  return await decodeSyncDataFromBaserow(raw, null);
 }
 
 async function syncApexSettingsRemote({ pushIfMissing = true } = {}) {
@@ -4418,7 +4471,7 @@ async function syncApexSettingsRemote({ pushIfMissing = true } = {}) {
   settingsSyncing = true;
   try {
     lastSettingsSyncAt = Date.now();
-    const remotePayload = parseRemoteApexSettings(await readRemoteApexSettings());
+    const remotePayload = await parseRemoteApexSettings(await readRemoteApexSettings());
     const remoteSettings = normalizeSyncedApexSettings(remotePayload);
     const remoteStamp = stampValue(remoteSettings?.settingsUpdatedAt || remotePayload?.updatedAt);
     const localStamp = settingsStamp();
@@ -4465,7 +4518,7 @@ async function pushProfileType(profile, type) {
         body: JSON.stringify({
           profile,
           beyanname_type: type,
-          data: JSON.stringify(profileData)
+          data: await encodeSyncDataForBaserow(profileData)
         })
       });
       if (!res.ok) throw await responseError('Baserow kayıt hatasi', res);
@@ -4492,7 +4545,7 @@ async function pullProfileType(profile, type, options) {
     const row = await baserowEnsureRow(profile, type);
     remoteRaw = row.data;
   }
-  const remoteData = normalizeProfileData(safeJsonObject(remoteRaw, {}));
+  const remoteData = normalizeProfileData(await decodeSyncDataFromBaserow(remoteRaw, {}));
   const localData = normalizeProfileData(ensureTypeData(profile, type));
 
   if (hasProfileData(remoteData)) {
@@ -8625,7 +8678,7 @@ async function tgWriteRemote(payload) {
     body: JSON.stringify({
       profile: TAHAKKUK_SYNC_PROFILE,
       beyanname_type: TAHAKKUK_SYNC_TYPE,
-      data: JSON.stringify(payload)
+      data: await encodeSyncDataForBaserow(payload)
     })
   });
   if (!res.ok) throw await responseError('Tahakkuk Gönder Baserow kayıt hatası', res);
