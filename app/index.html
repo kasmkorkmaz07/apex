@@ -1347,6 +1347,23 @@
   .settings-actions button:disabled { opacity: .45; cursor: not-allowed; }
   .settings-actions .primary, .settings-mini-btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
   .settings-actions .danger, .settings-mini-btn.danger { background: #991b1b; border-color: #991b1b; color: #fff; }
+  .sync-health-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:12px; margin-top:12px; }
+  .sync-health-card { border:1px solid var(--border); border-radius:14px; background:rgba(255,255,255,0.72); padding:12px; box-shadow:var(--shadow); }
+  .sync-health-card strong { display:block; font-size:13px; color:var(--muted); margin-bottom:5px; }
+  .sync-health-card b { display:block; font-size:18px; color:var(--text); }
+  .sync-health-card span { display:block; color:var(--muted); font-size:12px; margin-top:4px; line-height:1.35; }
+  .sync-health-list { display:grid; gap:8px; margin-top:10px; max-height:280px; overflow:auto; padding-right:4px; }
+  .sync-health-row { display:grid; grid-template-columns:minmax(120px,1.2fr) minmax(90px,.7fr) minmax(80px,.6fr) minmax(86px,.7fr); gap:8px; align-items:center; border:1px solid var(--border); border-radius:12px; padding:8px 10px; background:rgba(255,255,255,0.62); font-size:12px; }
+  .sync-health-row.header { color:var(--muted); font-weight:900; background:transparent; box-shadow:none; }
+  .sync-pill { display:inline-flex; align-items:center; justify-content:center; min-height:24px; border-radius:999px; padding:2px 8px; font-weight:900; font-size:11px; border:1px solid var(--border); }
+  .sync-pill.ok { color:#116034; background:#dff8ea; border-color:#99e2b7; }
+  .sync-pill.warn { color:#845200; background:#fff3cd; border-color:#f2c15f; }
+  .sync-pill.bad { color:#991b1b; background:#fee2e2; border-color:#fca5a5; }
+  .sync-repair-box { border:1px dashed var(--border); border-radius:14px; padding:12px; background:rgba(19,139,194,.08); color:var(--muted); font-size:12px; line-height:1.45; }
+  .sync-repair-box b { color:var(--text); }
+  body.dark .sync-health-card, body.dark .sync-health-row { background:#111318; border-color:#303846; color:#f5f7fb; }
+  body.dark .sync-repair-box { background:rgba(14,165,233,.12); border-color:#30475c; }
+  body.dark .settings-mini-btn.danger { background:#991b1b; border-color:#991b1b; color:#fff; }
   .theme-choice { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 8px; }
   .theme-choice button { border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: var(--text); padding: 14px; font-family: inherit; font-weight: 950; cursor: pointer; }
   .theme-choice button.active { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37,99,235,.14); color: var(--accent); }
@@ -1475,6 +1492,7 @@
         <button class="settings-tab" data-settings-tab="declarations" onclick="switchSettingsTab('declarations')">Beyanname Türleri</button>
         <button class="settings-tab" data-settings-tab="actions" onclick="switchSettingsTab('actions')">İşlemler</button>
         <button class="settings-tab" data-settings-tab="transfer" onclick="switchSettingsTab('transfer')">Mükellef Aktar</button>
+        <button class="settings-tab" data-settings-tab="sync" onclick="switchSettingsTab('sync')">Senkron Ayarları</button>
       </aside>
       <main class="settings-content">
         <section class="settings-pane active" id="settings-pane-appearance">
@@ -1632,6 +1650,51 @@
                 <button onclick="setSettingsTransferSelection(false)">Temizle</button>
               </div>
               <div class="manage-list" id="settings-transfer-clients"></div>
+            </div>
+          </div>
+        </section>
+
+
+        <section class="settings-pane" id="settings-pane-sync">
+          <div class="settings-head">
+            <div>
+              <h3>Senkron Ayarları</h3>
+              <p>Baserow bağlantısını, veri boyutunu ve senkron sağlığını buradan takip edin.</p>
+            </div>
+            <button class="btn-cancel" onclick="closeSettingsModal()">Kapat</button>
+          </div>
+          <div class="settings-grid">
+            <div class="settings-panel">
+              <h4>Baserow bağlantısı</h4>
+              <div class="settings-form">
+                <label>Baserow Tablo ID<input type="text" id="sync-table-input" placeholder="Örn. 123456"></label>
+                <label>Baserow API Token<input type="text" id="sync-token-input" placeholder="Token"></label>
+                <button class="settings-mini-btn primary" onclick="saveSyncSettings()">Bağlantıyı kaydet</button>
+                <button class="settings-mini-btn" onclick="testSyncHealth()">Bağlantıyı test et</button>
+                <button class="settings-mini-btn danger" onclick="clearSyncSettings()">Senkronu kapat</button>
+              </div>
+            </div>
+            <div class="settings-panel">
+              <h4>Senkron sağlığı</h4>
+              <div class="sync-health-grid" id="sync-health-summary"></div>
+            </div>
+            <div class="settings-panel wide">
+              <h4>Tek tuşla onarım</h4>
+              <div class="sync-repair-box">
+                <b>Bu işlem mükellef, dönem, not ve grup kayıtlarını silmez.</b>
+                Sadece senkronu şişiren eski geri al/geçmiş kayıtlarını temizler, yerel yedek alır ve mevcut temiz veriyi Baserow’a tekrar gönderir.
+              </div>
+              <div class="settings-actions" style="margin-top:10px">
+                <button class="primary" onclick="repairSyncHealth()">Gereksiz kayıtları temizle ve onar</button>
+              </div>
+            </div>
+            <div class="settings-panel wide">
+              <h4>Profil / beyanname veri boyutu</h4>
+              <div class="sync-health-list" id="sync-health-rows"></div>
+            </div>
+            <div class="settings-panel wide">
+              <h4>Son hata</h4>
+              <div class="sync-repair-box" id="sync-health-last-error">Hata yok.</div>
             </div>
           </div>
         </section>
@@ -2266,23 +2329,6 @@
     <div class="type-modal-cards" id="type-modal-cards"></div>
     <div class="modal-btns">
       <button class="btn-cancel" onclick="closeTypeModal()">Kapat</button>
-    </div>
-  </div>
-</div>
-
-<!-- Sync Modal -->
-<div class="modal-overlay" id="sync-modal">
-  <div class="modal sync-modal">
-    <h3>Baserow Senkron</h3>
-    <div class="sync-help">Tüm bilgisayarlar aynı Baserow tablosuna bağlanır. Ana bilgisayar açık olmasa da kayıtlar internet üzerinden ortak merkezde tutulur.</div>
-    <label>Baserow Tablo ID</label>
-    <input type="text" id="sync-table-input" placeholder="Örn. 123456">
-    <label>Baserow API Token</label>
-    <input type="text" id="sync-token-input" placeholder="Token">
-    <div class="modal-btns">
-      <button class="btn-cancel" onclick="closeSyncSettings()">Kapat</button>
-      <button class="btn-cancel" onclick="clearSyncSettings()">Senkronu kapat</button>
-      <button class="btn-ok" onclick="saveSyncSettings()">Kaydet</button>
     </div>
   </div>
 </div>
@@ -3964,13 +4010,12 @@ function isAnySyncConfigured() {
 }
 
 async function openSyncSettings() {
-  document.getElementById('sync-table-input').value = getBaserowTableId();
-  document.getElementById('sync-token-input').value = getBaserowToken();
-  document.getElementById('sync-modal').classList.add('open');
+  openSettingsModal('sync');
+  renderSyncHealth();
 }
 
 function closeSyncSettings() {
-  document.getElementById('sync-modal').classList.remove('open');
+  closeSettingsModal();
 }
 
 async function saveSyncSettings() {
@@ -4035,6 +4080,138 @@ function baserowHeaders() {
 function baserowTableUrl() {
   return `${BASEROW_API_BASE}/${encodeURIComponent(getBaserowTableId())}/`;
 }
+
+
+function formatSyncBytes(bytes) {
+  const n = Number(bytes || 0);
+  if (!Number.isFinite(n) || n <= 0) return '0 B';
+  if (n < 1024) return n + ' B';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+  return (n / 1024 / 1024).toFixed(2) + ' MB';
+}
+
+function syncHealthState(bytes) {
+  const n = Number(bytes || 0);
+  if (n >= 1000000) return { cls: 'bad', text: 'Onarım gerekli' };
+  if (n >= 850000) return { cls: 'warn', text: 'Sıkıştırılır' };
+  if (n >= 700000) return { cls: 'warn', text: 'Takip et' };
+  return { cls: 'ok', text: 'Sağlıklı' };
+}
+
+function collectLocalSyncHealthRows() {
+  const rows = [];
+  Object.entries(store.profiles || {}).forEach(([profile, profileData]) => {
+    Object.entries(profileData || {}).forEach(([type, typeData]) => {
+      let size = 0;
+      try { size = JSON.stringify(syncPayloadData(typeData || {})).length; } catch(e) {}
+      rows.push({ profile, type, localSize: size, remoteSize: null, compressed: false });
+    });
+  });
+  return rows.sort((a, b) => (b.localSize || 0) - (a.localSize || 0));
+}
+
+function updateSyncSettingsInputs() {
+  const tableInput = document.getElementById('sync-table-input');
+  const tokenInput = document.getElementById('sync-token-input');
+  if (tableInput && document.activeElement !== tableInput) tableInput.value = getBaserowTableId();
+  if (tokenInput && document.activeElement !== tokenInput) tokenInput.value = getBaserowToken();
+}
+
+function renderSyncHealth(remoteRows = null) {
+  updateSyncSettingsInputs();
+  const summary = document.getElementById('sync-health-summary');
+  const list = document.getElementById('sync-health-rows');
+  const lastError = document.getElementById('sync-health-last-error');
+  if (!summary && !list && !lastError) return;
+
+  const localRows = collectLocalSyncHealthRows();
+  const remoteMap = new Map((remoteRows || []).map(row => [profileTypeKey(row.profile, row.type), row]));
+  const mergedRows = localRows.map(row => Object.assign({}, row, remoteMap.get(profileTypeKey(row.profile, row.type)) || {}));
+  const largest = mergedRows[0]?.localSize || 0;
+  const overLimit = mergedRows.filter(row => (row.localSize || 0) >= 1000000).length;
+  const warnCount = mergedRows.filter(row => (row.localSize || 0) >= 700000).length;
+  const connected = isBaserowSyncConfigured();
+  const statusText = connected ? 'Baserow bağlı' : 'Kurulum bekliyor';
+  const statusCls = connected ? 'ok' : 'warn';
+  const lastPushText = lastPushAt ? new Date(lastPushAt).toLocaleString('tr-TR') : 'Henüz yok';
+
+  if (summary) {
+    summary.innerHTML = `
+      <div class="sync-health-card"><strong>Bağlantı</strong><b><span class="sync-pill ${statusCls}">${escapeHtml(statusText)}</span></b><span>Tablo: ${escapeHtml(getBaserowTableId() || '-')}</span></div>
+      <div class="sync-health-card"><strong>En büyük veri</strong><b>${escapeHtml(formatSyncBytes(largest))}</b><span>${overLimit ? overLimit + ' kayıt sınırı aşmış' : warnCount ? warnCount + ' kayıt takipte' : 'Boyutlar normal'}</span></div>
+      <div class="sync-health-card"><strong>Son gönderim</strong><b>${escapeHtml(lastPushText)}</b><span>Program açıkken değişiklikler otomatik gider.</span></div>`;
+  }
+
+  if (list) {
+    if (!mergedRows.length) {
+      list.innerHTML = '<div class="sync-health-row"><span>Henüz veri yok.</span></div>';
+    } else {
+      list.innerHTML = '<div class="sync-health-row header"><span>Profil / Beyanname</span><span>Yerel</span><span>Baserow</span><span>Durum</span></div>' + mergedRows.map(row => {
+        const state = syncHealthState(row.localSize || 0);
+        const remoteSize = row.remoteSize == null ? '-' : formatSyncBytes(row.remoteSize);
+        const remoteLabel = row.compressed ? remoteSize + ' sıkışık' : remoteSize;
+        return `<div class="sync-health-row"><span>${escapeHtml(row.profile)} / ${escapeHtml(row.type)}</span><span>${escapeHtml(formatSyncBytes(row.localSize || 0))}</span><span>${escapeHtml(remoteLabel)}</span><span><span class="sync-pill ${state.cls}">${escapeHtml(state.text)}</span></span></div>`;
+      }).join('');
+    }
+  }
+
+  if (lastError) lastError.textContent = lastSyncError || 'Hata yok.';
+}
+
+async function testSyncHealth() {
+  if (!isBaserowSyncConfigured()) {
+    setSyncStatus('Kurulum bekliyor', 'offline');
+    renderSyncHealth();
+    alert('Baserow Tablo ID ve API Token girip kaydedin.');
+    return;
+  }
+  setSyncStatus('Senkron test ediliyor...', 'pending');
+  try {
+    const rows = await baserowFetchRows('');
+    const remoteRows = rows.map(row => {
+      const dataText = String(row.data || '');
+      return {
+        profile: row.profile || '',
+        type: row.beyanname_type || '',
+        remoteSize: dataText.length,
+        compressed: dataText.startsWith('apex-gzip-base64:')
+      };
+    });
+    lastSyncError = '';
+    setSyncStatus('Senkron sağlıklı', 'online');
+    renderSyncHealth(remoteRows);
+  } catch(e) {
+    setSyncError(e, 'Senkron testi');
+    renderSyncHealth();
+  }
+}
+
+async function repairSyncHealth() {
+  const ok = await appConfirm('Senkron onarımı yapılsın mı? Mükellef, dönem, not ve grup kayıtları kalır; sadece eski geri al/geçmiş kayıtları temizlenir ve temiz veri Baserow’a tekrar gönderilir.');
+  if (!ok) return;
+  setSyncStatus('Senkron onarılıyor...', 'pending');
+  try {
+    if (typeof createAutoBackup === 'function') await createAutoBackup('senkron onarımı öncesi');
+    pruneStoreHistoryForStorage();
+    await apexWriteJson(STORAGE_KEY, store);
+    const items = [];
+    Object.entries(store.profiles || {}).forEach(([profile, profileData]) => {
+      Object.keys(profileData || {}).forEach(type => items.push([profile, type]));
+    });
+    for (const [profile, type] of items) {
+      await pushProfileType(profile, type);
+    }
+    try { await syncApexSettingsRemote({ pushIfMissing: true }); } catch(e) { setSyncError(e, 'Ayar senkronu'); }
+    setSyncStatus('Senkron onarıldı', 'online');
+    await testSyncHealth();
+    alert('Senkron onarımı tamamlandı. Eski gereksiz geçmiş kayıtları temizlendi ve mevcut veri tekrar gönderildi.');
+  } catch(e) {
+    setSyncError(e, 'Senkron onarımı');
+    renderSyncHealth();
+    alert('Senkron onarımı tamamlanamadı: ' + (e.message || e));
+  }
+}
+
 
 function normalizeProfileData(data) {
   return {
@@ -7488,9 +7665,17 @@ function exportPDF() {
 
 // ---- SETTINGS ----
 function openSettingsModal(tab = 'appearance') {
-  renderSettingsAll();
-  switchSettingsTab(tab);
   document.getElementById('settings-modal')?.classList.add('open');
+  try {
+    renderSettingsAll();
+  } catch(e) {
+    console.warn('Ayarlar içeriği hazırlanamadı', e);
+  }
+  try {
+    switchSettingsTab(tab);
+  } catch(e) {
+    console.warn('Ayarlar sekmesi açılamadı', e);
+  }
 }
 
 function closeSettingsModal() {
@@ -7504,16 +7689,22 @@ function switchSettingsTab(tab) {
   if (tab === 'declarations') renderSettingsDeclarations();
   if (tab === 'actions') renderSettingsActions();
   if (tab === 'transfer') renderProfileTransferSettings();
+  if (tab === 'sync') safeSettingsRender('Senkron sağlığı', renderSyncHealth);
   syncThemeChoiceButtons();
 }
 
+function safeSettingsRender(label, fn) {
+  try { fn(); } catch(e) { console.warn(label + ' hazırlanamadı', e); }
+}
+
 function renderSettingsAll() {
-  syncThemeChoiceButtons();
-  renderSettingsProfiles();
-  renderSettingsDeclarations();
-  renderSettingsActionTypeSelect();
-  renderSettingsActions();
-  renderProfileTransferSettings();
+  safeSettingsRender('Tema seçenekleri', syncThemeChoiceButtons);
+  safeSettingsRender('Profil ayarları', renderSettingsProfiles);
+  safeSettingsRender('Beyanname türleri', renderSettingsDeclarations);
+  safeSettingsRender('İşlem türleri', renderSettingsActionTypeSelect);
+  safeSettingsRender('İşlem ayarları', renderSettingsActions);
+  safeSettingsRender('Mükellef aktarımı', renderProfileTransferSettings);
+  safeSettingsRender('Senkron sağlığı', renderSyncHealth);
 }
 
 function syncThemeChoiceButtons() {
