@@ -6,4 +6,4 @@ Apex 1.0.129
 - Açılış zaman aşımı ve yeniden deneme mesajı eklendi.
 - Küçük pencere ve aylık gider KDV özeti korundu.
 
-Güncelleme paketi ve kayıt/ayar arşivi GitHub sürüm eklerinde ayrı dosyalardır. Arşiv program kurulunca otomatik olarak mevcut kayıtların üzerine yazılmaz.
+Güncelleme paketi GitHub sürüm ekindedir. Kayıt/ayar arşivi yerel bilgisayarda ayrıca hazırlandı ve bu yayına dahil edilmedi. Güncelleme mevcut kullanıcı kayıtlarını korur.
