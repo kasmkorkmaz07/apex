@@ -1,0 +1,7 @@
+.package-modal.receipt-mode{width:calc(100vw - 20px);height:calc(100vh - 20px);max-height:calc(100vh - 20px);padding:10px;display:flex;flex-direction:column;overflow:hidden}
+.receipt-mode #smart-doc-view{flex:1;min-height:0}
+#receipt-native-host{height:100%;min-height:120px;background:#f2f5f9;color:#143b58;border-radius:10px;overflow:hidden;position:relative}
+#receipt-native-host p{padding:20px}
+.package-tool-icon.tool-art{width:54px;height:54px;background:transparent!important;border-radius:12px;display:block;object-fit:contain}
+@media(max-width:1000px){.package-tools{grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.package-tool-card{padding:12px}.package-tool-card strong{font-size:12px}}
+@media(max-width:700px){.package-tools{grid-template-columns:repeat(2,minmax(0,1fr))}}

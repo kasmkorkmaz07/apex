@@ -1394,6 +1394,8 @@
   body.dark .sync-help { background: #162a44; border-color: #2f68a8; color: #bfdbfe; }
   .bt-back-top{position:fixed;left:50%;bottom:18px;transform:translateX(-50%) translateY(14px);width:44px;height:44px;border-radius:999px;border:1px solid rgba(255,255,255,.24);background:rgba(15,23,42,.42);color:rgba(255,255,255,.9);display:none;align-items:center;justify-content:center;z-index:9999;box-shadow:0 10px 28px rgba(0,0,0,.22);backdrop-filter:blur(8px);cursor:pointer;font-size:22px;font-weight:800;opacity:.86}.bt-back-top.show{display:flex;transform:translateX(-50%) translateY(0)}.bt-back-top:hover{opacity:1}
 </style>
+<link rel="stylesheet" href="stock.css">
+<link rel="stylesheet" href="receipt-ui.css">
 </head>
 <body>
   <button id="bt-back-top" class="bt-back-top" type="button" title="Yukarı çık">^</button>
@@ -2548,14 +2550,15 @@
     <div class="package-note package-hidden"></div>
     <div id="package-tools-view">
       <div class="package-tools">
+<div class="package-tool-card" onclick="openStockTracker()"><img class="package-tool-icon tool-art" src="assets/package-icons/stock.svg" alt="" width="54" height="54"><strong>Stok Takip</strong><span>PDF/ZIP faturalardan firma, stok hareketleri ve dönemsel KDV takibi.</span></div>
         <div class="package-tool-card" onclick="openInvoiceReader()">
-          <div class="package-tool-icon">F</div>
+          <img class="package-tool-icon tool-art" src="assets/package-icons/invoice.svg" alt="" width="54" height="54">
           <strong>Fatura Okuma</strong>
           <span>Mükellef bazlı gelen/giden fatura, KDV, tevkifat, iade ve iptal takibi.</span>
         </div>
         <div class="package-tool-card" onclick="openInvoiceCompare()">
           <div>
-            <div class="package-tool-icon" style="background:#0f766e">FK</div>
+            <img class="package-tool-icon tool-art" src="assets/package-icons/compare.svg" alt="" width="54" height="54">
             <strong>Fatura Karşılaştır</strong>
             <span>Mükelleften gelen PDF/ZIP faturalar ile bendeki faturaları numara bazında karşılaştırır.</span>
           </div>
@@ -2563,7 +2566,7 @@
         </div>
         <div class="package-tool-card" onclick="openExcelControl()">
           <div>
-            <div class="package-tool-icon" style="background:#7c3aed">K</div>
+            <img class="package-tool-icon tool-art" src="assets/package-icons/excel.svg" alt="" width="54" height="54">
             <strong>Excel Kontrol</strong>
             <span>Karşı taraftaki yevmiye Excel'i ile Zirve çıktısını fatura numarasına göre karşılaştırır.</span>
           </div>
@@ -2571,7 +2574,7 @@
         </div>
         <div class="package-tool-card" onclick="openDeclarationControl()">
           <div>
-            <div class="package-tool-icon" style="background:#be123c">B</div>
+            <img class="package-tool-icon tool-art" src="assets/package-icons/declaration.svg" alt="" width="54" height="54">
             <strong>Beyanname Kontrol</strong>
             <span>Zirve firma listesini Apex beyanname takip kayıtlarıyla akıllı isim eşleştirme yaparak karşılaştırır.</span>
           </div>
@@ -2579,15 +2582,15 @@
         </div>
         <div class="package-tool-card" onclick="openSmartDocs()">
           <div>
-            <div class="package-tool-icon" style="background:#f97316">AI</div>
-            <strong>Akıllı Evrak</strong>
-            <span>Telefondan gelen fiş/faturayı okuyup hesap kodu ve muhasebe fişi önerir.</span>
+            <img class="package-tool-icon tool-art" src="assets/package-icons/receipt.ico" alt="" width="54" height="54">
+            <strong>Fiş Asistanı</strong>
+            <span>Fiş, fatura ve Z raporlarını okur; aylık KDV ve Zirve Excel aktarımını hazırlar.</span>
           </div>
           <span>Aç</span>
         </div>
         <div class="package-tool-card" onclick="openStampSignatureTool()">
           <div>
-            <div class="package-tool-icon" style="background:#0ea5e9">İK</div>
+            <img class="package-tool-icon tool-art" src="assets/package-icons/stamp.svg" alt="" width="54" height="54">
             <strong>Kaşe / İmza</strong>
             <span>PDF üzerine kaşe, imza ve metin yerleştirip net PDF çıktısı alır.</span>
           </div>
@@ -2595,7 +2598,7 @@
         </div>
         <div class="package-tool-card" onclick="openTahakkukGonderTool()">
           <div>
-            <div class="package-tool-icon" style="background:#0f766e">TG</div>
+            <img class="package-tool-icon tool-art" src="assets/package-icons/tahakkuk.svg" alt="" width="54" height="54">
             <strong>Tahakkuk Gönder</strong>
             <span>Zirve tahakkuk ve beyanname PDF'lerini seçili mükellef ya da özel numaralara WhatsApp Web ile gönderir.</span>
           </div>
@@ -2676,37 +2679,52 @@
         <h4>Fatura Karşılaştır</h4>
         <div class="package-add">
           <select id="invoice-compare-client" onchange="syncInvoiceCompareClient()"></select>
-          <input id="invoice-compare-vkn" placeholder="Mükellef VKN/TCKN" maxlength="11" inputmode="numeric" oninput="this.value=this.value.replace(/\\D/g,'').slice(0,11); saveInvoiceCompareClientVkn()">
+          <label id="invoice-compare-selected-info" hidden>Seçili mükellefin VKN/TCKN'si
+            <input id="invoice-compare-vkn" readonly aria-label="Seçili mükellefin VKN/TCKN bilgisi" placeholder="Kayıtlı numara yok">
+          </label>
+          <button class="mini-btn primary" id="invoice-compare-show-new" onclick="showInvoiceCompareNewClient()">Yeni mükellef ekle</button>
+          <div id="invoice-compare-new-form" hidden style="display:none">
+            <strong>Yeni mükellef kaydı</strong>
+            <label>Mükellef adı<input id="invoice-compare-new-name" maxlength="200" placeholder="Adı / unvanı"></label>
+            <label>VKN / TCKN (isteğe bağlı)<input id="invoice-compare-new-vkn" maxlength="11" inputmode="numeric" placeholder="10 veya 11 rakam"></label>
+            <button class="mini-btn primary" id="invoice-compare-add-client" onclick="addInvoiceCompareClient()">Kaydet</button>
+            <button class="mini-btn" id="invoice-compare-cancel-new" onclick="hideInvoiceCompareNewClient()">Vazgeç</button>
+          </div>
+          <button class="mini-btn" id="invoice-compare-delete-client" onclick="deleteInvoiceCompareClient()">Seçili mükellefi listeden sil</button>
         </div>
-        <div class="package-note" style="display:block;margin-top:10px">ZIP içindeki PDF'ler ve tek PDF içindeki sayfalar ayrı fatura olarak okunur.</div>
+        <div class="package-note" style="display:block;margin-top:10px">Fatura ZIP/PDF ve muavin PDF/Excel dosyaları iki tarafa da eklenebilir. Mükellef silme yalnızca bu karşılaştırma listesini etkiler.</div>
       </div>
       <div class="package-main-panel">
         <h4>Fatura karşılaştırması</h4>
         <div class="invoice-compare-grid">
           <div class="excel-drop">
             <div>
-              <strong>Mükelleften gelen faturalar</strong>
-              <span>Karşılaştırmada kaynak kabul edilecek ZIP/PDF dosyaları.</span>
+              <strong>Karşı taraftan gelen faturalar / muavin</strong>
+              <span>ZIP/PDF fatura arşivi veya karşı tarafın muavin PDF/Excel çıktısı.</span>
             </div>
+            
+            
             <div class="excel-file-name" id="invoice-compare-source-name">Dosya seçilmedi.</div>
-            <input type="file" id="invoice-compare-source-file" accept=".pdf,.zip" multiple style="display:none" onchange="handleInvoiceCompareFiles(this,'source')">
-            <button class="mini-btn primary" onclick="document.getElementById('invoice-compare-source-file').click()">Gelen fatura ekle</button>
+            <input type="file" id="invoice-compare-source-file" accept=".pdf,.zip,.xlsx,.xls" multiple style="display:none" onchange="handleInvoiceCompareFiles(this,'source')">
+            <button class="mini-btn primary" onclick="document.getElementById('invoice-compare-source-file').click()">Gelen fatura / muavin ekle</button>
           </div>
           <div class="excel-drop">
             <div>
-              <strong>Bende olan faturalar</strong>
-              <span>Kontrol edeceğin kendi ZIP/PDF arşivin.</span>
+              <strong>Bendeki faturalar / Zirve muavin çıktısı</strong>
+              <span>ZIP/PDF fatura arşivi veya Zirve muavin PDF/Excel çıktısı.</span>
             </div>
+            
+            
             <div class="excel-file-name" id="invoice-compare-target-name">Dosya seçilmedi.</div>
-            <input type="file" id="invoice-compare-target-file" accept=".pdf,.zip" multiple style="display:none" onchange="handleInvoiceCompareFiles(this,'target')">
-            <button class="mini-btn" onclick="document.getElementById('invoice-compare-target-file').click()">Bendeki fatura ekle</button>
+            <input type="file" id="invoice-compare-target-file" accept=".pdf,.zip,.xlsx,.xls" multiple style="display:none" onchange="handleInvoiceCompareFiles(this,'target')">
+            <button class="mini-btn" onclick="document.getElementById('invoice-compare-target-file').click()">Fatura / muavin ekle</button>
           </div>
         </div>
         <div class="package-actions">
           <button class="filter" onclick="runInvoiceCompare()">Karşılaştır</button>
           <button class="soft-clear" onclick="clearInvoiceCompare()">Temizle</button>
         </div>
-        <div class="reader-status" id="invoice-compare-status">İki bölüme PDF veya ZIP ekleyip karşılaştırın.</div>
+        <div class="reader-status" id="invoice-compare-status">İki bölüme fatura ZIP/PDF veya muavin PDF/Excel ekleyip karşılaştırın.</div>
         <div class="excel-control-summary" id="invoice-compare-summary">
           <div class="excel-control-stats">
             <div class="excel-control-stat"><strong>0</strong><span>Mükellefteki</span></div>
@@ -2801,63 +2819,7 @@
         </div>
       </div>
     </div>
-    <div class="package-shell package-hidden" id="smart-doc-view">
-      <div class="package-side">
-        <h4>Akıllı Evrak mükellefi</h4>
-        <div class="package-search-row">
-          <input id="smart-client-search" placeholder="Mükellef ara" oninput="renderSmartClients()">
-          <button onclick="renderSmartClients()">Ara</button>
-        </div>
-        <div class="package-list" id="smart-client-list"></div>
-        <div class="smart-doc-rule" style="margin-top:10px">
-          Taşımacı seçilen mükelleflerde akaryakıt/mazot belgeleri mal alımı sayılmaz; Apex doğrudan gider fişi mantığıyla <b>770 + 191 / 320</b> önerir.
-        </div>
-      </div>
-      <div class="package-main-panel">
-        <h4 id="smart-doc-title">Mükellef seçin</h4>
-        <div class="smart-doc-grid">
-          <div class="smart-doc-card">
-            <h5>Belge okutma</h5>
-            <div class="smart-doc-form">
-              <select id="smart-sector" onchange="saveSmartClientSector(); analyzeSmartDocument()">
-                <option value="genel">Genel mükellef</option>
-                <option value="tasimaci">Taşımacı / nakliye</option>
-              </select>
-              <select id="smart-direction">
-                <option value="auto">Belge yönü otomatik</option>
-                <option value="alis">Alış / gider</option>
-                <option value="satis">Satış</option>
-              </select>
-              <input id="smart-doc-date" placeholder="Tarih">
-              <input id="smart-doc-vkn" placeholder="VKN/TCKN">
-              <input id="smart-doc-number" placeholder="Fiş / fatura no">
-              <input id="smart-doc-company" placeholder="Firma adı">
-              <input id="smart-doc-base" placeholder="Matrah">
-              <input id="smart-doc-vat" placeholder="KDV">
-              <input id="smart-doc-total" placeholder="Genel toplam">
-              <input id="smart-doc-rate" placeholder="KDV oranı">
-              <textarea id="smart-doc-text" placeholder="OCR metni veya fiş/fatura üzerindeki yazıları buraya yapıştırın. Örn: OPET 15.05.2026 Mazot Matrah 1.000 KDV 200 Toplam 1.200"></textarea>
-              <input class="wide" type="file" id="smart-doc-file" accept=".pdf,.png,.jpg,.jpeg,.webp" onchange="handleSmartDocFile(this)">
-            </div>
-            <div class="package-actions" style="margin-top:10px;margin-bottom:0">
-              <button class="filter" onclick="analyzeSmartDocument()">Oku ve fiş öner</button>
-              <button class="primary" onclick="saveSmartDocument()">Kaydet</button>
-              <button class="dump" onclick="exportSmartVoucher()">Fişi Excel indir</button>
-              <button class="soft-clear" onclick="clearSmartDocumentForm()">Temizle</button>
-            </div>
-          </div>
-          <div class="smart-doc-card">
-            <h5>Önerilen muhasebe fişi</h5>
-            <div class="smart-doc-preview" id="smart-doc-preview">Belge seçildiğinde ya da metin okutulduğunda özet burada görünecek.</div>
-            <div id="smart-voucher-result" style="margin-top:10px"></div>
-          </div>
-        </div>
-        <div class="smart-doc-card" style="margin-top:12px">
-          <h5>Son okunan evraklar</h5>
-          <div class="smart-doc-list" id="smart-doc-list"></div>
-        </div>
-      </div>
-    </div>
+    <div class="package-hidden" id="smart-doc-view"><div id="receipt-native-host"><p id="receipt-launch-status">Fiş Asistanı hazırlanıyor…</p><button id="receipt-retry" onclick="window.openReceiptAssistant()" hidden>Tekrar dene</button></div></div>
     <div class="package-shell package-hidden" id="stamp-signature-view" style="grid-template-columns:1fr">
       <div class="package-main-panel stamp-signature-panel">
         <iframe
@@ -4124,9 +4086,19 @@ function renderSyncHealth(remoteRows = null) {
   const lastError = document.getElementById('sync-health-last-error');
   if (!summary && !list && !lastError) return;
 
-  const localRows = collectLocalSyncHealthRows();
-  const remoteMap = new Map((remoteRows || []).map(row => [profileTypeKey(row.profile, row.type), row]));
-  const mergedRows = localRows.map(row => Object.assign({}, row, remoteMap.get(profileTypeKey(row.profile, row.type)) || {}));
+  let localRows = [];
+  let mergedRows = [];
+  try {
+    const rowKey = row => String(row.profile || '') + '\u001f' + String(row.type || '');
+    localRows = collectLocalSyncHealthRows();
+    const remoteMap = new Map((remoteRows || []).map(row => [rowKey(row), row]));
+    mergedRows = localRows.map(row => Object.assign({}, row, remoteMap.get(rowKey(row)) || {}));
+  } catch(e) {
+    if (summary) summary.innerHTML = '<div class="sync-health-card"><strong>Senkron sağlığı</strong><b>Okunamadı</b><span>' + escapeHtml(e.message || e) + '</span></div>';
+    if (list) list.innerHTML = '<div class="sync-health-row"><span>Veri boyutu hesaplanamadı: ' + escapeHtml(e.message || e) + '</span></div>';
+    if (lastError) lastError.textContent = e.message || String(e);
+    return;
+  }
   const largest = mergedRows[0]?.localSize || 0;
   const overLimit = mergedRows.filter(row => (row.localSize || 0) >= 1000000).length;
   const warnCount = mergedRows.filter(row => (row.localSize || 0) >= 700000).length;
@@ -7561,7 +7533,8 @@ function exportExcel() {
 <head><meta charset="UTF-8"><style>td,th{padding:6px 10px;border:1px solid #ccc;font-family:Segoe UI,Arial,sans-serif;font-size:12px}th{background:#f5f5f0;font-weight:700;font-size:11px;text-transform:uppercase}  .bt-back-top{position:fixed;left:50%;bottom:18px;transform:translateX(-50%) translateY(14px);width:44px;height:44px;border-radius:999px;border:1px solid rgba(255,255,255,.24);background:rgba(15,23,42,.42);color:rgba(255,255,255,.9);display:none;align-items:center;justify-content:center;z-index:9999;box-shadow:0 10px 28px rgba(0,0,0,.22);backdrop-filter:blur(8px);cursor:pointer;font-size:22px;font-weight:800;opacity:.86}.bt-back-top.show{display:flex;transform:translateX(-50%) translateY(0)}.bt-back-top:hover{opacity:1}
 </style></head><body>
 <table><tr><td colspan="4" style="font-size:16px;font-weight:700;text-align:center;padding:12px">${currentType} Beyanname Takip - ${label}</td></tr>
-<tr>${headerCols}</tr>${rows}</table></body></html>`;
+<tr>${headerCols}</tr>${rows}</table>
+</body></html>`;
 
   const blob = new Blob(['\uFEFF'+html],{type:'application/vnd.ms-excel;charset=utf-8'});
   const url = URL.createObjectURL(blob);
@@ -8466,7 +8439,7 @@ async function startZirveInvoiceDownload() {
     archive: 'Fatura Karşılaştır',
     excel: 'Excel Kontrol',
     declaration: 'Beyanname Kontrol',
-    smart: 'Akıllı Evrak',
+    smart: 'Fiş Asistanı',
     stamp: 'Kaşe / İmza',
     tahakkuk: 'Tahakkuk Gönder'
   };
@@ -8638,8 +8611,8 @@ async function startZirveInvoiceDownload() {
   document.getElementById('stamp-signature-view').classList.add('package-hidden');
   document.getElementById('tahakkuk-gonder-view').classList.add('package-hidden');
   document.getElementById('package-back-btn').classList.remove('package-hidden');
-  renderSmartClients();
-  renderSmartDocuments();
+  document.getElementById('package-modal-title').textContent='Fiş Asistanı';
+  window.openReceiptAssistant();
 }
 
   function openStampSignatureTool() {
@@ -10668,12 +10641,12 @@ async function handleInvoiceCompareFiles(input, side) {
   try {
     invoiceCompareStatus(`${files.length} dosya okunuyor...`, 'active');
     for (const file of files) {
-      const results = await processInvoiceInputFile(file, context);
+      const results = await processInvoiceCompareInputFile(file, context, side);
       results.forEach(inv => rows.push(inv));
     }
     invoiceCompareState[side] = rows;
     invoiceCompareState.result = null;
-    invoiceCompareStatus(`${rows.length} fatura okundu.`, rows.length ? 'ok' : 'warn');
+    invoiceCompareStatus(`${rows.length} fatura / muavin kaydı okundu.`, rows.length ? 'ok' : 'warn');
   } catch (err) {
     console.error(err);
     invoiceCompareStatus(`Dosyalar okunamadı: ${err.message || err}`, 'warn');
@@ -14859,6 +14832,9 @@ initApexApp();
   (function setupBeyannameBackTop(){const btn=document.getElementById("bt-back-top");if(!btn)return;function root(){return document.querySelector("#beyanname-view .modal-body,#beyanname-takip-view .modal-body,#beyanname-view .package-content,#beyanname-takip-view .package-content,.beyanname-panel,.content")||document.scrollingElement||document.documentElement}function open(){return!!document.querySelector("#beyanname-view:not(.hidden):not(.package-hidden),#beyanname-takip-view:not(.hidden):not(.package-hidden)")||/beyanname/i.test(String(location.hash||document.body.dataset.activeView||""))}function y(r){return(r===document.scrollingElement||r===document.documentElement)?window.scrollY:r.scrollTop}function update(){const r=root();btn.classList.toggle("show",y(r)>320)}btn.addEventListener("click",()=>{const r=root();if(r===document.scrollingElement||r===document.documentElement)window.scrollTo({top:0,behavior:"smooth"});else r.scrollTo({top:0,behavior:"smooth"})});document.addEventListener("scroll",update,true);window.addEventListener("hashchange",update);setInterval(update,600);update()})();
 </script>
   
+<script src="stock-core.js"></script><script src="stock-reader.js"></script><script src="stock.js"></script>
+<script src="muavin-compare.js"></script><script src="compare-evidence.js"></script><script src="muavin-compare-ui.js"></script><script src="invoice-compare-clients.js"></script>
+<script src="receipt-ui.js"></script>
 </body>
 </html>
 

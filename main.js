@@ -1730,37 +1730,7 @@ async function loadRemoteUpdateManifest(manifestUrl) {
   return readJsonFile(filePath, null);
 }
 
-function normalizeUpdateManifest(remote) {
-  if (!remote || typeof remote !== 'object') return remote;
-  if (remote.tag_name && Array.isArray(remote.assets)) {
-    const releaseVersion = String(remote.tag_name || '').replace(/^v/i, '') || remote.name || '';
-    const versionPattern = releaseVersion ? new RegExp(`v?${releaseVersion.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i') : null;
-    const exactVersionedNames = [
-      `Apex-Kurulum-v${releaseVersion}.exe`,
-      `Apex-Kurulum-${releaseVersion}.exe`
-    ].map(item => item.toLocaleLowerCase('tr-TR'));
-    const installerAssets = remote.assets.filter(asset =>
-      /\.exe$/i.test(asset.name || '') && /apex/i.test(asset.name || '') && /kurulum|setup|installer/i.test(asset.name || '')
-    );
-    const exeAsset = installerAssets.find(asset =>
-      exactVersionedNames.includes(String(asset.name || '').toLocaleLowerCase('tr-TR'))
-    ) || remote.assets.find(asset =>
-      /\.exe$/i.test(asset.name || '') && versionPattern && versionPattern.test(asset.name || '') && /apex/i.test(asset.name || '')
-    ) || installerAssets.find(asset =>
-      versionPattern && versionPattern.test(asset.name || '')
-    ) || installerAssets.find(asset =>
-      !/^Apex-Kurulum\.exe$/i.test(asset.name || '')
-    ) || remote.assets.find(asset => /\.exe$/i.test(asset.name || ''));
-    const version = releaseVersion;
-    return {
-      latestVersion: version,
-      version,
-      downloadUrl: (exeAsset && exeAsset.browser_download_url) || remote.html_url || '',
-      notes: remote.body ? [remote.body] : []
-    };
-  }
-  return remote;
-}
+function normalizeUpdateManifest(remote) { return require('./updater').normalize(remote); }
 
 function downloadFileWithProgress(url, target, onProgress, redirects = 0) {
   return new Promise((resolve, reject) => {
@@ -2028,8 +1998,8 @@ function createWindow() {
   const win = new BrowserWindow({
     width: 1380,
     height: 860,
-    minWidth: 1120,
-    minHeight: 720,
+    minWidth: 800,
+    minHeight: 580,
     title: APP_NAME,
     backgroundColor: '#11151d',
     icon: path.join(__dirname, 'assets', 'icon.png'),
@@ -2863,6 +2833,12 @@ ipcMain.handle('apex:read-json', (_event, key, fallback = null) => {
 });
 
 ipcMain.handle('apex:write-json', (_event, key, value) => {
+  if (key === 'apex_stock_v1') {
+    const oldPath = dataFilePath(key);
+    const backupDir = path.join(ensureApexFolders(), 'backups');
+    fs.mkdirSync(backupDir, {recursive:true});
+    if (fs.existsSync(oldPath)) fs.copyFileSync(oldPath, path.join(backupDir, 'stock-' + Date.now() + '.json'));
+  }
   writeJsonFile(dataFilePath(key), value);
   return true;
 });
@@ -3213,125 +3189,29 @@ ipcMain.handle('apex:gib-download-docs', async (_event, request = {}) => {
   return { ok: true, folder: gibArchiveFolder(request), files: results };
 });
 
-ipcMain.handle('apex:download-and-install-update', async (_event, update) => {
-  const url = update && update.downloadUrl;
-  if (!url || !/^https?:\/\//i.test(url)) throw new Error('GÃ¼ncelleme indirme adresi geÃ§ersiz.');
-  const target = updateDownloadPath(update.latestVersion || update.version);
-  fs.mkdirSync(path.dirname(target), { recursive: true });
-  const sendProgress = payload => {
-    try { _event.sender.send('apex:update-progress', payload); } catch {}
-  };
-  sendProgress({ phase: 'download', percent: 0, downloaded: 0, total: 0 });
+let installingUpdate=false;
+ipcMain.handle('apex:download-and-install-update', async (_event, requested) => {
+  if(installingUpdate)throw new Error('Güncelleme zaten hazırlanıyor.');
+  installingUpdate=true;
+  let partial;
   try {
-    await downloadFileWithProgress(url, target, sendProgress);
-  } catch (err) {
-    try { if (fs.existsSync(target)) fs.unlinkSync(target); } catch {}
-    throw err;
-  }
-  sendProgress({ phase: 'install', percent: 100, path: target });
-  const currentExe = process.execPath;
-  if (app.isPackaged) {
-    const installDir = path.dirname(currentExe);
-    const runnerPath = path.join(ensureApexFolders(), 'data', 'apex-update-runner.ps1');
-    const logPath = path.join(ensureApexFolders(), 'data', 'apex-update-runner.log');
-    const script = [
-      '$ErrorActionPreference = "Stop"',
-      `$installer = ${JSON.stringify(target)}`,
-      `$installDir = ${JSON.stringify(installDir)}`,
-      `$exe = ${JSON.stringify(currentExe)}`,
-      `$logPath = ${JSON.stringify(logPath)}`,
-      `$apexPid = ${process.pid}`,
-      `$expectedVersion = ${JSON.stringify(update.latestVersion || update.version || '')}`,
-      'function Log($message) {',
-      '  $line = "[$(Get-Date -Format \'yyyy-MM-dd HH:mm:ss\')] $message"',
-      '  Write-Host $line',
-      '  try { Add-Content -LiteralPath $logPath -Value $line -Encoding UTF8 } catch {}',
-      '}',
-      'try { $host.UI.RawUI.WindowTitle = "Apex Güncelleme Kurulumu" } catch {}',
-      'Log "Apex güncelleme yardımcısı yönetici izinli çalışıyor."',
-      'Log "Apex kapanınca kurulum başlatılacak."',
-      'Start-Sleep -Milliseconds 1200',
-      'try { Wait-Process -Id $apexPid -ErrorAction SilentlyContinue } catch {}',
-      'Get-Process Apex -ErrorAction SilentlyContinue | Where-Object { $_.Id -ne $PID } | ForEach-Object {',
-      '  try { Log "Açık Apex süreci kapatılıyor: $($_.Id)"; Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue } catch {}',
-      '}',
-      'if (!(Test-Path -LiteralPath $installer)) { Log "Kurulum dosyası bulunamadı: $installer"; Read-Host "Kapatmak için Enter"; exit 1 }',
-      'if (!(Test-Path -LiteralPath $installDir)) { New-Item -ItemType Directory -Path $installDir -Force | Out-Null }',
-      'Log "Kurulum başlatılıyor: $installer"',
-      'Log "Hedef klasör: $installDir"',
-      '# NSIS /D parametresi son argüman olmalı; Start-Process array ile yolu tek argüman olarak korur.',
-      '$installArgs = @("/S", "/D=$installDir")',
-      'try {',
-      '  $proc = Start-Process -FilePath $installer -ArgumentList $installArgs -PassThru',
-      '  $finished = Wait-Process -Id $proc.Id -Timeout 600 -ErrorAction SilentlyContinue',
-      '  if (-not $finished) {',
-      '    Log "Sessiz kurulum 10 dakika içinde bitmedi. İşlem kapatılıp görünür kurulum açılacak."',
-      '    try { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue } catch {}',
-      '    $proc = Start-Process -FilePath $installer -PassThru',
-      '    Wait-Process -Id $proc.Id -ErrorAction SilentlyContinue',
-      '  }',
-      '  Log "Kurulum işlemi tamamlandı. ExitCode=$($proc.ExitCode)"',
-      '  if ($null -ne $proc.ExitCode -and $proc.ExitCode -ne 0) { throw "Kurulum ExitCode=$($proc.ExitCode) ile bitti." }',
-      '  if (Test-Path -LiteralPath $exe) {',
-      '    $actualVersion = ""',
-      '    $manifestPath = Join-Path $installDir "resources\\app\\update-manifest.json"',
-      '    try {',
-      '      if (Test-Path -LiteralPath $manifestPath) {',
-      '        $actualVersion = (Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json).version',
-      '      }',
-      '    } catch {}',
-      '    if (-not $actualVersion) { try { $actualVersion = (Get-Item -LiteralPath $exe).VersionInfo.ProductVersion } catch {} }',
-      '    Log "Kurulu Apex sürümü: $actualVersion"',
-      '    if ($expectedVersion -and $actualVersion -and -not $actualVersion.StartsWith($expectedVersion)) {',
-      '      Log "Sürüm doğrulaması tutmadı. Görünür kurulum bir kez daha başlatılacak."',
-      '      $proc = Start-Process -FilePath $installer -ArgumentList @("/D=$installDir") -PassThru',
-      '      Wait-Process -Id $proc.Id -ErrorAction SilentlyContinue',
-      '      try { $actualVersion = (Get-Item -LiteralPath $exe).VersionInfo.ProductVersion; Log "Görünür kurulum sonrası sürüm: $actualVersion" } catch {}',
-      '    }',
-      '  }',
-      '} catch {',
-      '  Log "Kurulum başlatılamadı veya tamamlanamadı: $($_.Exception.Message)"',
-      '  Log "Kurulum dosyasını elle çalıştırmanız gerekebilir: $installer"',
-      '  Start-Process -FilePath explorer.exe -ArgumentList "/select,`"$installer`""',
-      '  Read-Host "Kapatmak için Enter"',
-      '  exit 1',
-      '}',
-      'Start-Sleep -Seconds 3',
-      'if (Test-Path -LiteralPath $exe) {',
-      '  Log "Apex yeniden başlatılıyor: $exe"',
-      '  Start-Process -FilePath $exe',
-      '} else {',
-      '  Log "Apex exe bulunamadı, başlangıç menüsünden açmanız gerekebilir: $exe"',
-      '}',
-      'Log "Güncelleme tamamlandı."',
-      'Start-Sleep -Seconds 2'
-    ].join('\r\n');
-    fs.mkdirSync(path.dirname(runnerPath), { recursive: true });
-    fs.writeFileSync(runnerPath, script, 'utf8');
-    const needsElevation = /^C:\\Program( Files( \(x86\))?)?\\/i.test(installDir);
-    const bootstrap = [
-      '$ErrorActionPreference = "Stop"',
-      `$runner = ${JSON.stringify(runnerPath)}`,
-      needsElevation
-        ? 'Start-Process -FilePath "powershell.exe" -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $runner) -Verb RunAs'
-        : 'Start-Process -FilePath "powershell.exe" -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $runner)'
-    ].join('\r\n');
-    const updater = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', bootstrap], {
-      detached: true,
-      stdio: 'ignore',
-      windowsHide: false
-    });
-    updater.unref();
-  } else {
-    const child = spawn(target, [], {
-      detached: true,
-      stdio: 'ignore',
-      windowsHide: false
-    });
-    child.unref();
-  }
-  setTimeout(() => app.quit(), 1500);
-  return { ok: true, path: target };
+    const update=await checkForUpdates();
+    if(!update.updateAvailable)throw new Error('Apex zaten güncel. Aynı veya eski sürüm tekrar kurulmayacak.');
+    if(String(requested?.latestVersion||requested?.version)!==update.latestVersion)throw new Error('Güncelleme bilgisi değişti. Lütfen yeniden kontrol edin.');
+    if(!/^https:\/\//i.test(update.downloadUrl))throw new Error('Güvenli kurulum adresi bulunamadı.');
+    const target=updateDownloadPath(update.latestVersion);
+    partial=target+'.partial';fs.mkdirSync(path.dirname(target),{recursive:true});
+    const progress=payload=>{try{_event.sender.send('apex:update-progress',payload)}catch{}};
+    progress({phase:'download',percent:0,downloaded:0,total:0});
+    await downloadFileWithProgress(update.downloadUrl,partial,progress);
+    await require('./updater').verifyInstaller(partial,update);
+    fs.renameSync(partial,target);partial=null;
+    progress({phase:'install',percent:100,path:target});
+    if(!app.isPackaged)throw new Error('Kurulum yalnızca kurulu Apex uygulamasından başlatılabilir.');
+    await require('./updater').launch({root:ensureApexFolders(),installer:target,exe:process.execPath,version:update.latestVersion,appPid:process.pid,sha256:update.sha256});
+    setTimeout(()=>app.quit(),500);
+    return{ok:true,path:target};
+  }catch(error){if(partial)try{fs.unlinkSync(partial)}catch{}installingUpdate=false;throw error;}
 });
 
 app.whenReady().then(async () => {
@@ -3356,3 +3236,45 @@ app.on('activate', () => {
 
 
 
+
+ipcMain.handle('apex:stock-pdf', async (event, payload) => {
+  if (!payload || typeof payload.html !== 'string' || payload.html.length > 15000000) throw new Error('Rapor boyutu geçersiz.');
+  const owner = BrowserWindow.fromWebContents(event.sender);
+  const chosen = await dialog.showSaveDialog(owner, {title:'Stok Takip PDF kaydet', defaultPath:path.join(ensureApexFolders(),'exports',path.basename(String(payload.fileName||'Stok-Takip.pdf'))), filters:[{name:'PDF',extensions:['pdf']}]});
+  if(chosen.canceled) return {canceled:true};
+  const win = new BrowserWindow({show:false,webPreferences:{nodeIntegration:false,contextIsolation:true,sandbox:true,javascript:false}});
+  try {
+    await win.loadURL('data:text/html;charset=utf-8,'+encodeURIComponent(payload.html));
+    const data = await win.webContents.printToPDF({landscape:true,printBackground:true,pageSize:'A4',margins:{top:0.4,bottom:0.4,left:0.4,right:0.4}});
+    fs.writeFileSync(chosen.filePath,data);return {ok:true};
+  } finally {win.destroy();}
+});
+
+// Fiş Asistanı: yerel çocuk pencere, ortak kayıt klasörü, kurulumdan önce etkinleşmez.
+const receiptHosts=new Map();
+ipcMain.handle('apex:receipt-layout',async(event,payload={})=>{
+  if(event.senderFrame!==event.sender.mainFrame)throw new Error('İşlem yalnız ana Apex ekranından yapılabilir.');
+  const {fileURLToPath}=require('url');
+  let senderPath='';try{senderPath=fileURLToPath(event.senderFrame.url.split('?')[0]);}catch{}
+  if(path.resolve(senderPath)!==path.resolve(appRoot(),'index.html'))throw new Error('Geçersiz ekran.');
+  const win=BrowserWindow.fromWebContents(event.sender);if(!win)throw new Error('Apex penceresi bulunamadı.');
+  let host=receiptHosts.get(event.sender.id);
+  if(!host){
+    if(!payload.visible)return true;
+    const config=JSON.parse(fs.readFileSync(path.join(__dirname,'receipt-integration.json'),'utf8'));
+    host=new (require('./receipt-host').ReceiptHost)(win,config);receiptHosts.set(event.sender.id,host);
+    let approvedClose=false,checking=false;
+    win.on('close',event=>{
+      if(approvedClose||!host.child)return;
+      event.preventDefault();if(checking)return;checking=true;
+      host.close().then(ok=>{
+        if(ok){approvedClose=true;win.close();}
+        else dialog.showMessageBox(win,{type:'info',message:'Fiş Asistanı açık işlemi korudu.',detail:'Yükleme sürüyorsa tamamlanmasını bekleyin. Düzenlediğiniz kaydı kaydedip yeniden kapatın.'});
+      }).catch(error=>dialog.showMessageBox(win,{type:'error',message:error.message})).finally(()=>checking=false);
+    });
+    win.once('closed',()=>{receiptHosts.delete(event.sender.id);host.child?.stdin.end();});
+  }
+  const {screen}=require('electron');
+  const scale=screen.getDisplayMatching(win.getBounds()).scaleFactor*event.sender.getZoomFactor();
+  return host.layout(payload.rect,payload.visible,scale);
+});

@@ -1,6 +1,8 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('apexDesktop', {
+  receiptLayout: (payload) => ipcRenderer.invoke('apex:receipt-layout', payload),
+  exportStockPdf: (payload) => ipcRenderer.invoke('apex:stock-pdf', payload),
   getPaths: () => ipcRenderer.invoke('apex:get-paths'),
   readJson: (key, fallback = null) => ipcRenderer.invoke('apex:read-json', key, fallback),
   writeJson: (key, value) => ipcRenderer.invoke('apex:write-json', key, value),

@@ -1,13 +1,23 @@
 {
   "name": "Apex",
-  "version": "1.0.113",
-  "latestVersion": "1.0.113",
+  "version": "1.0.129",
+  "latestVersion": "1.0.129",
   "updateManifestUrl": "https://api.github.com/repos/kasmkorkmaz07/apex/releases/latest",
   "downloadUrl": "https://github.com/kasmkorkmaz07/apex/releases/latest",
   "channel": "stable",
   "dataFolder": "Documents/Apex",
   "strategy": "Test on the development computer first, then publish the portable or installer package without replacing user data.",
   "notes": [
+    "1.0.129: Güncel Fiş Asistanı korunarak mükellef/cari ekleme formu ve Apex gömülü pencere görünürlüğü düzeltildi.",
+    "1.0.127 reads final payable amounts from positioned PDF text and full invoice-page text, preserving ledger-specific rules and multi-invoice uploads.",
+    "1.0.126 scopes withholding/service-base comparison to invoice versus ledger credit rows; invoice versus invoice retains final payable matching.",
+    "1.0.125 compares final payable amounts only, automatically recognizes supported files and displays only missing, extra or differing records.",
+    "1.0.124 improves invoice party extraction and reconciles document numbers with comparable amounts while preserving original evidence and name/date details.",
+    "1.0.123 fixes comparison client identity matching, deleted client reappearance, and separates new-client entry from read-only selected-client details.",
+    "1.0.122 adds comparison client management and muavin PDF/Excel uploads on both sides.",
+    "1.0.121 adds Zirve muavin PDF/Excel reconciliation by document number, document date and counterparty, preserving the original PDF/ZIP invoice workflow.",
+    "1.0.120 restores Stock Tracking; mixed-date ZIP invoices post to their invoice months with automatic validation and recalculated stock and VAT carry-forward.",
+    "1.0.119 verifies installer version and checksum, waits for authorized handoff, and verifies the installed ASAR version before reporting success.",
     "1.0.113 speeds up Apex startup by rendering the home screen before heavier package/dashboard refresh work and by deferring market-rate refreshes without recursive redraws.",
     "1.0.111 embeds the updated Kase/Imza HTML, restores the standalone HTML from the protected bundled copy if it is deleted, and adds a Kase/Imza settings button to download a rebuilt HTML file.",
     "1.0.108 makes Tahakkuk Gonder year selection compact and multi-select, places year/month side by side, auto-generates years from 2015 through the current year, and scans selected years together.",
@@ -107,4 +117,3 @@
     "1.0.76 removes the Zirvenet/Apex shared folder dependency and seeds Tahakkuk Gönder data from the installer into Apex's own data folder."
   ]
 }
-
