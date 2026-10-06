@@ -388,8 +388,8 @@ def posting_period(d,period):
     return d
 
 def document_month(d):
-    """Gelirler ve faturalar kendi belge tarihleriyle kaydedilir."""
-    return bool(d.get('is_z_report') or d.get('is_invoice') or d.get('kind')=='gelir')
+    """Gelirler belge ayına; gider fişleri ve faturaları seçilen aya kaydedilir."""
+    return bool(d.get('is_z_report') or d.get('kind')=='gelir')
 
 def actual_period(d, fallback):
     if document_month(d) and d.get('evrak_tarihi'):
@@ -451,6 +451,11 @@ class Store:
                 self.db.execute('INSERT OR IGNORE INTO vendor_aliases VALUES (?,?)',(key,d['vkn']))
 
     def recall_vendor(self,d):
+        if (d.get('qr_raw') or d.get('ai_used')) and not (d.get('is_z_report') or d.get('custom_description') or d.get('vkn_omitted')):
+            exact=self.db.execute('SELECT name FROM vendors WHERE vkn=?',(d.get('vkn',''),)).fetchone()
+            if exact:
+                d['aciklama']=exact[0];d['vendor_source']='Ünvan: QR / Gemini kimliğiyle kayıtlı cari eşleşmesi.'
+                return d
         if d.get('kind')=='gelir' or d.get('is_invoice') or d.get('custom_description') or d.get('vkn_omitted'):return d
         row=self.db.execute('SELECT name FROM vendors WHERE vkn=?',(d.get('vkn',''),)).fetchone()
         if row:

@@ -28,6 +28,7 @@ def install(app,heading,top,bottom,pane,left,detail,right):
     actions=next(((w,o) for w,o in left_children if any(isinstance(c,ttk.Button) for c in w.winfo_children())),None)
     if actions:
         left_children.remove(actions);left_children.insert(next(i for i,(w,o) in enumerate(left_children) if w is app.tree.master),actions)
+    app.show_documents=lambda:show('list') if app.compact else None
     app.show_record_detail=lambda:show('detail') if app.compact else None
     title=next(w for w in heading.winfo_children() if isinstance(w,ttk.Label))
     original_title=title.cget('text')

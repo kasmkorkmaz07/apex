@@ -1393,6 +1393,13 @@
   body.dark .gib-status { background: rgba(8,145,178,.13); border-color: rgba(56,189,248,.32); }
   body.dark .sync-help { background: #162a44; border-color: #2f68a8; color: #bfdbfe; }
   .bt-back-top{position:fixed;left:50%;bottom:18px;transform:translateX(-50%) translateY(14px);width:44px;height:44px;border-radius:999px;border:1px solid rgba(255,255,255,.24);background:rgba(15,23,42,.42);color:rgba(255,255,255,.9);display:none;align-items:center;justify-content:center;z-index:9999;box-shadow:0 10px 28px rgba(0,0,0,.22);backdrop-filter:blur(8px);cursor:pointer;font-size:22px;font-weight:800;opacity:.86}.bt-back-top.show{display:flex;transform:translateX(-50%) translateY(0)}.bt-back-top:hover{opacity:1}
+
+/* Data security: distinguish backup scope from technical tools. */
+.data-safe-head>.btn-cancel{padding:8px 12px;border:1px solid var(--border);border-radius:8px;flex-shrink:0;cursor:pointer;font:inherit;font-size:12px}
+.data-safe-modal{width:min(860px,calc(100vw - 28px));padding:22px;box-sizing:border-box}
+.safe-status{display:flex;align-items:flex-start;gap:10px;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:12px 14px;margin:14px 0}.safe-status strong,.safe-status span:not(.safe-status-dot){display:block;font-size:12px;line-height:1.55}.safe-status span:not(.safe-status-dot){color:var(--text2)}.safe-status-dot{width:8px;height:8px;border-radius:50%;background:#38bdf8;flex-shrink:0;margin-top:5px}
+.safe-primary-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.safe-task{display:flex;flex-direction:column;border:1px solid var(--border);border-radius:14px;padding:16px;background:var(--surface2)}.safe-task-label{font-size:10px;letter-spacing:1.3px;color:var(--text2);font-weight:800}.safe-task h4{font-size:16px;margin:7px 0}.safe-task p,.safe-scope p,.safe-details p,.safe-restore-note{font-size:12px;line-height:1.6;color:var(--text2);margin:5px 0 12px}.safe-time{font-size:11px;color:var(--text2);margin:0 0 12px}.safe-task button{margin-top:auto;align-self:flex-start}.safe-main-btn,.safe-secondary-btn{border:1px solid var(--border);border-radius:9px;padding:9px 12px;cursor:pointer;font:inherit;font-size:12px;font-weight:750;background:var(--surface2);color:var(--text)}.safe-main-btn{background:#0e7490;color:white;border-color:#0e7490}.safe-scope{padding:12px 0;margin:5px 0}.safe-scope strong{font-size:12px}.safe-scope p{margin-bottom:0}.safe-details{border-top:1px solid var(--border);padding:12px 0}.safe-details summary{cursor:pointer;font-size:13px;font-weight:750}.safe-details>.safe-secondary-btn{margin-top:10px}.safe-tool{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:14px;padding:12px;background:var(--surface2);border-radius:10px}.safe-tool strong{font-size:12px}.safe-tool p{margin-bottom:0}.safe-tool button{flex-shrink:0}.safe-tool small{font-size:10px;overflow-wrap:anywhere;color:var(--text2)}.safe-folder-actions{display:flex;gap:8px;flex-wrap:wrap}.safe-footer{border-top:1px solid var(--border);padding-top:12px;display:flex;justify-content:space-between;gap:12px;font-size:10px;color:var(--text2)}
+@media(max-width:620px){.safe-primary-grid{grid-template-columns:1fr}.safe-tool{align-items:flex-start;flex-direction:column}.safe-footer{flex-direction:column}.data-safe-modal{padding:16px}}
 </style>
 <link rel="stylesheet" href="stock.css">
 <link rel="stylesheet" href="receipt-ui.css">
@@ -2312,10 +2319,10 @@
 <!-- Restore Modal -->
 <div class="modal-overlay" id="restore-modal">
   <div class="modal" style="width:700px;max-width:calc(100vw - 28px)">
-    <h3>Yedek ve Kurtarma Noktaları</h3>
+    <h3>Beyanname kayıt noktaları</h3><p class="safe-restore-note">Yalnızca son iki beyanname kayıt durumunu geri yükler. Paket program kayıtları, ayarlar ve belge dosyaları bu işlemle değişmez.</p>
     <div class="safety-actions" style="margin-bottom:12px">
       <button class="mini-btn primary" onclick="createManualBackup()">Şimdi yedek al</button>
-      <button class="mini-btn" onclick="exportAllData()">JSON yedek indir</button>
+      <button class="mini-btn" onclick="exportAllData()">Beyanname JSON indir</button>
     </div>
     <div class="timeline" id="restore-list"></div>
     <div class="modal-btns">
@@ -2339,39 +2346,18 @@
 <div class="modal-overlay" id="data-safe-modal">
   <div class="modal data-safe-modal">
     <div class="data-safe-head">
-      <div>
-        <h3>Veri Güvenliği</h3>
-        <p>Apex kayıtları program dosyalarından ayrı olarak Belgeler/Apex klasöründe tutulur. Bu ekran yedek, geri yükleme, klasör ve güncelleme kontrollerini tek yerde toplar.</p>
-      </div>
+      <div><h3>Veri Güvenliği</h3><p>Bu bilgisayardaki Apex kayıtlarını yedekleyin ve önceki kayıt durumuna dönün.</p></div>
       <button class="btn-cancel" onclick="closeDataSafeModal()">Kapat</button>
     </div>
-    <div class="data-safe-grid">
-      <div class="data-safe-card">
-        <strong>Profil Ekle/Kaldır</strong>
-        <span>Yeni profil oluştur, eski profili kaldır veya profil şifresini yenile.</span>
-        <button class="mini-btn primary" style="margin-top:10px" onclick="openProfileManager()">Aç</button>
-      </div>
-      <div class="data-safe-card">
-        <strong>Son hızlı yedek</strong>
-        <span id="data-safe-last-quick">Henüz yedek yok</span>
-      </div>
-      <div class="data-safe-card">
-        <strong>Uygulama sürümü</strong>
-        <span>Test ve geliştirme sürümü</span>
-        <b id="data-safe-version">Apex</b>
-      </div>
+    <div class="safe-status"><span class="safe-status-dot"></span><div><strong>Yedekler bu bilgisayarda saklanıyor</strong><span>Ofis hesabı ve bulut üzerinden tam geri yükleme henüz etkin değil.</span></div></div>
+    <div class="safe-primary-grid">
+      <section class="safe-task"><div class="safe-task-label">YEDEK AL</div><h4>Apex kayıtlarını koru</h4><p>Beyanname kayıtlarını, paket program kayıtlarını ve Apex ayarlarını yerel yedek dosyasına kaydeder.</p><div class="safe-time">Son kayıt noktası: <span id="data-safe-last-quick">Kontrol ediliyor…</span></div><button class="safe-main-btn" onclick="createManualBackupFromDataSafe()">Şimdi yedek al</button></section>
+      <section class="safe-task"><div class="safe-task-label">GERİ DÖN</div><h4>Önceki beyanname kayıtları</h4><p>Son iki hızlı kayıt noktasından birini seçip beyanname kayıtlarını o durumuna döndürür. Paket programları ve dosyaları geri yüklemez.</p><button class="safe-secondary-btn" onclick="openRestoreFromDataSafe()">Kayıt noktalarını göster</button></section>
     </div>
-    <div class="data-safe-actions">
-      <button class="primary" onclick="createManualBackupFromDataSafe()">Şimdi yedek al</button>
-      <button onclick="openRestoreModal()">Hızlı yedekler</button>
-      <button onclick="exportAllData()">JSON dışa aktar</button>
-      <button class="folder" onclick="openApexFolder('data')">Veri klasörü</button>
-      <button class="folder" onclick="openApexFolder('backups')">Yedek klasörü</button>
-      <button class="folder" onclick="openApexFolder('app')">Program klasörü</button>
-    </div>
-    <div class="update-note">
-      <strong>Güncelleme sistemi:</strong> Yeni Apex sürümünü önce bu bilgisayarda test edeceğiz. Onaydan sonra portable paket veya kurulum paketi diğer bilgisayarlara verilecek; kayıtlar Belgeler/Apex altında kaldığı için güncelleme program dosyasını değiştirir, mükellef kayıtlarını silmez.
-    </div>
+    <div class="safe-scope"><strong>Bu yedeğin kapsamı</strong><p>Fiş Asistanı’nın ayrı veritabanı ve fotoğrafları, PDF belgeleri, kaşe/imza dosyaları ve WhatsApp oturumu dahil değildir. Bu ekran henüz yeni bilgisayara eksiksiz ofis taşıma sağlamaz.</p></div>
+    <details class="safe-details"><summary>Kaydedilen yedek dosyaları</summary><p>Bilgisayarda tutulan JSON kayıt yedekleri. Son 30 dosya saklanır. Bu dosyalar, aşağıdaki beyanname JSON çıktısından farklıdır.</p><div id="backup-file-list" class="backup-file-list"></div><button class="safe-secondary-btn" onclick="openApexFolder('backups')">Yedeklerin bulunduğu klasörü aç</button></details>
+    <details class="safe-details"><summary>Diğer araçlar</summary><div class="safe-tool"><div><strong>Beyanname verisini dışa aktar</strong><p>Beyanname ve borç takip kayıtlarını JSON olarak indirir. Tam Apex yedeği değildir.</p></div><button class="safe-secondary-btn" onclick="exportAllData()">JSON indir</button></div><div class="safe-tool"><div><strong>Yerel kullanıcı profilleri</strong><p>Bu bilgisayardaki profilleri ve profil şifrelerini yönetir. Bulut ofis hesabı oluşturmaz.</p></div><button class="safe-secondary-btn" onclick="openProfilesFromDataSafe()">Profilleri yönet</button></div><div class="safe-tool"><div><strong>Klasörler</strong><p>Kayıtların veya programın bulunduğu klasörü açar; yedek almaz.</p><small id="data-safe-root"></small></div><div class="safe-folder-actions"><button class="safe-secondary-btn" onclick="openApexFolder('data')">Veri klasörü</button><button class="safe-secondary-btn" onclick="openApexFolder('app')">Program klasörü</button></div></div></details>
+    <div class="safe-footer"><span id="data-safe-version">Apex</span><span>Sürüm yükleme işlemleri ana ekrandaki Güncelleme bölümündedir.</span></div>
   </div>
 </div>
 
@@ -2819,7 +2805,7 @@
         </div>
       </div>
     </div>
-    <div class="package-hidden" id="smart-doc-view"><div id="receipt-native-host"><p id="receipt-launch-status">Fiş Asistanı hazırlanıyor…</p><button id="receipt-retry" onclick="window.openReceiptAssistant()" hidden>Tekrar dene</button></div></div>
+    <div class="package-hidden" id="smart-doc-view"><div id="receipt-native-host"><p id="receipt-launch-status" role="alert"></p><button id="receipt-retry" onclick="window.openReceiptAssistant()" hidden>Tekrar dene</button></div></div>
     <div class="package-shell package-hidden" id="stamp-signature-view" style="grid-template-columns:1fr">
       <div class="package-main-panel stamp-signature-panel">
         <iframe
@@ -6150,7 +6136,7 @@ function createAutoBackup(reason) {
 async function createManualBackup() {
   const target = await createAutoBackup('manuel');
   renderRestoreList();
-  alert(target ? 'Yedek alındı. Apex yedek klasörüne de kaydedildi.' : 'Yedek alındı.');
+  alert(target ? 'Kayıt noktası oluşturuldu ve Apex kayıt yedeği dosyaya kaydedildi. Belge dosyaları ve Fiş Asistanı bu yedeğe dahil değildir.' : 'Beyanname kayıt noktası oluşturuldu; dosya yedeği kaydedilemedi. Bu işlem tam ofis yedeği değildir.');
 }
 
 function updateBackupStatus() {
@@ -6204,9 +6190,12 @@ async function renderFileBackups() {
   list.innerHTML = files.map(file => {
     const d = new Date(file.modifiedAt);
     const date = Number.isNaN(d.getTime()) ? '' : d.toLocaleString('tr-TR');
-    return `<div class="backup-file-row"><div><strong>${file.name}</strong><span>${date} • ${formatBytes(file.size)}</span></div><span>JSON</span></div>`;
+    return `<div class="backup-file-row"><div><strong>${escapeHtml(file.name)}</strong><span>${date} • ${formatBytes(file.size)}</span></div><span>JSON</span></div>`;
   }).join('');
 }
+
+function openRestoreFromDataSafe() { closeDataSafeModal(); openRestoreModal(); }
+function openProfilesFromDataSafe() { closeDataSafeModal(); openProfileManager(); }
 
 async function createManualBackupFromDataSafe() {
   await createManualBackup();

@@ -11,7 +11,7 @@ def panel(root, title, scroll=False):
     win.close_action=win.destroy
     ttk.Button(bar,text='← Geri',command=lambda:win.close_action()).pack(side='right')
     if scroll:
-        canvas=tk.Canvas(win,highlightthickness=0,background='#f2f5f9')
+        canvas=tk.Canvas(win,highlightthickness=0,background=ttk.Style(root).lookup('TFrame','background') or '#f2f5f9')
         scrollbar=ttk.Scrollbar(win,orient='vertical',command=canvas.yview)
         scrollbar.pack(side='right',fill='y');canvas.pack(fill='both',expand=True)
         canvas.configure(yscrollcommand=scrollbar.set)

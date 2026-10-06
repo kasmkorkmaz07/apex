@@ -1,0 +1,10 @@
+const boot=await window.FisDesktop.request({path:'/desktop/bootstrap'});
+if(!localStorage.getItem('catalog'))localStorage.setItem('catalog',JSON.stringify(boot.catalog));
+if(!localStorage.getItem('connection')&&boot.connection?.url)localStorage.setItem('connection',JSON.stringify(boot.connection));
+const prefs=boot.preferences||{};
+if(!localStorage.getItem('theme'))localStorage.setItem('theme',prefs.theme||'auto');
+if(!localStorage.getItem('ai'))localStorage.setItem('ai',JSON.stringify({key:prefs.ai_key||'',mode:prefs.ai_mode||'off',model:prefs.ai_model||''}));
+let preferenceTimer;
+const originalSet=Storage.prototype.setItem;
+Storage.prototype.setItem=function(k,v){originalSet.call(this,k,v);if(this===localStorage&&['theme','ai'].includes(k)){clearTimeout(preferenceTimer);preferenceTimer=setTimeout(()=>{let ai={};try{ai=JSON.parse(localStorage.getItem('ai')||'{}')}catch{}window.FisDesktop.request({path:'/desktop/preferences',method:'POST',body:{theme:localStorage.getItem('theme')||'auto',ai_key:ai.key||'',ai_mode:ai.mode||'off',ai_model:ai.model||''}}).catch(()=>{});},300);}};
+await import('./app.js');

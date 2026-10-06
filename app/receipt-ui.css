@@ -5,3 +5,5 @@
 .package-tool-icon.tool-art{width:54px;height:54px;background:transparent!important;border-radius:12px;display:block;object-fit:contain}
 @media(max-width:1000px){.package-tools{grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.package-tool-card{padding:12px}.package-tool-card strong{font-size:12px}}
 @media(max-width:700px){.package-tools{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+#receipt-launch-status:empty{display:none}

@@ -33,24 +33,42 @@ def run():
     window.overrideredirect(True);window.minsize(1,1);window.geometry('760x480+0+0')
     window.update_idletasks()
     user=c.WinDLL('user32',use_last_error=True)
+    user.IsWindow.argtypes=[w.HWND];user.IsWindow.restype=w.BOOL
+    user.IsIconic.argtypes=[w.HWND];user.IsIconic.restype=w.BOOL
+    user.ClientToScreen.argtypes=[w.HWND,c.POINTER(w.POINT)]
     user.GetParent.argtypes=[w.HWND];user.GetParent.restype=w.HWND
     user.SetParent.argtypes=[w.HWND,w.HWND];user.SetParent.restype=w.HWND
     user.GetWindowLongPtrW.argtypes=[w.HWND,c.c_int];user.GetWindowLongPtrW.restype=c.c_ssize_t
     user.SetWindowLongPtrW.argtypes=[w.HWND,c.c_int,c.c_ssize_t];user.SetWindowLongPtrW.restype=c.c_ssize_t
     user.MoveWindow.argtypes=[w.HWND,c.c_int,c.c_int,c.c_int,c.c_int,w.BOOL]
     user.ShowWindow.argtypes=[w.HWND,c.c_int]
-    user.SetWindowPos.argtypes=[w.HWND,w.HWND,c.c_int,c.c_int,c.c_int,c.c_int,w.UINT]
     user.IsWindowVisible.argtypes=[w.HWND];user.IsWindowVisible.restype=w.BOOL
-    user.GetTopWindow.argtypes=[w.HWND];user.GetTopWindow.restype=w.HWND
+    user.SetWindowPos.argtypes=[w.HWND,w.HWND,c.c_int,c.c_int,c.c_int,c.c_int,w.UINT];user.SetWindowPos.restype=w.BOOL
     user.GetClientRect.argtypes=[w.HWND,c.POINTER(w.RECT)]
     def dimensions(handle):
         r=w.RECT();user.GetClientRect(handle,c.byref(r));return [r.right,r.bottom]
     hwnd=user.GetParent(window.winfo_id()) or window.winfo_id()
-    style=user.GetWindowLongPtrW(hwnd,-16)
-    user.SetWindowLongPtrW(hwnd,-16,(style & ~0x80CF0000)|0x40000000|0x04000000)
-    c.set_last_error(0);user.SetParent(hwnd,parent)
-    if c.get_last_error():raise c.WinError(c.get_last_error())
-    window.deiconify();user.ShowWindow(hwnd,0)
+    # Owned top-level: Chromium cannot paint over this surface. No cross-process SetParent.
+    user.SetWindowLongPtrW(hwnd,-8,parent)
+    root.place_configure(x=0,y=0,relwidth=1,relheight=1,width=0,height=0)
+    window.withdraw()
+    requested=None;last_position=None;surface_visible=False
+    def position():
+        nonlocal last_position,surface_visible
+        if not requested or not user.IsWindowVisible(parent) or user.IsIconic(parent):
+            if surface_visible:window.withdraw();surface_visible=False
+            last_position=None;return False
+        x,y,width,height=requested
+        origin=w.POINT(0,0);user.ClientToScreen(parent,c.byref(origin))
+        current=(origin.x+x,origin.y+y,width,height)
+        if current!=last_position or not surface_visible:
+            window.geometry(f'{width}x{height}{current[0]:+d}{current[1]:+d}')
+            window.deiconify()
+            root.update_idletasks();app.update_layout()
+            user.SetWindowPos(hwnd,0,*current,0x0014|0x0040)
+            window.update();app.update_layout()
+            surface_visible=True;last_position=current
+        return bool(user.IsWindowVisible(hwnd) and root.winfo_ismapped() and root.winfo_width()>20)
     commands=queue.Queue()
     def send(value):
         sys.stdout.write(json.dumps(value,ensure_ascii=False)+'\n');sys.stdout.flush()
@@ -61,6 +79,7 @@ def run():
         commands.put({'cmd':'parent_gone'})
     threading.Thread(target=reader,daemon=True).start()
     def poll():
+        nonlocal requested
         try:
             for _ in range(30):
                 msg=commands.get_nowait();cmd=msg.get('cmd');result=True
@@ -68,16 +87,9 @@ def run():
                     rect=msg.get('rect',{});app.embed_requested=rect
                     if msg.get('visible'):
                         values=[int(rect.get(k,0)) for k in ('x','y','width','height')]
-                        if values[2]>0 and values[3]>0:
-                            root.geometry(f'{values[2]}x{values[3]}+{values[0]}+{values[1]}')
-                            root.update_idletasks();app.update_layout()
-                            user.MoveWindow(hwnd,*values,True)
-                            user.MoveWindow(window.winfo_id(),0,0,values[2],values[3],True)
-                            user.ShowWindow(hwnd,5)
-                            # Chromium'un yerel render yüzeyinin arkasında kalmasın.
-                            user.SetWindowPos(hwnd,0,*values,0x0010|0x0040)
-                            root.update_idletasks();app.update_layout()
-                    else:user.ShowWindow(hwnd,0)
+                        requested=values if values[2]>20 and values[3]>20 else None
+                    else:requested=None
+                    result=position() if requested else (position() or True)
                 elif cmd=='close':
                     if app.busy:result=False
                     elif app.discard():
@@ -86,9 +98,12 @@ def run():
                 elif cmd=='parent_gone':
                     # Ana süreç beklenmedik kapanırsa okunmuş kayıtlar SQLite'ta kalır.
                     app.cancel_import.set();app.store.db.close();app.instance_lock.close();window.destroy();return
-                elif cmd=='status':result={'busy':app.busy,'dirty':app.dirty,'compact':app.compact,'width':root.winfo_width(),'height':root.winfo_height(),'parent_ok':int(user.GetParent(hwnd) or 0)==parent,'visible':bool(user.IsWindowVisible(hwnd)),'front':int(user.GetTopWindow(parent) or 0)==hwnd,'requested':getattr(app,'embed_requested',{}),'geometry':root.geometry(),'native':dimensions(hwnd),'content':dimensions(root.winfo_id())}
+                elif cmd=='status':result={'busy':app.busy,'dirty':app.dirty,'compact':app.compact,'width':root.winfo_width(),'height':root.winfo_height(),'visible':bool(user.IsWindowVisible(hwnd)),'parent_ok':int(user.GetWindowLongPtrW(hwnd,-8) or 0)==parent,'requested':getattr(app,'embed_requested',{}),'geometry':root.geometry(),'native':dimensions(hwnd),'content':dimensions(root.winfo_id())}
                 if msg.get('id') is not None:send({'id':msg['id'],'ok':result})
         except queue.Empty:pass
+        except Exception as error:
+            send({'id':msg.get('id'),'error':str(error)})
+        position()
         root.after(40,poll)
     send({'ready':True});root.after(40,poll);window.mainloop()
 

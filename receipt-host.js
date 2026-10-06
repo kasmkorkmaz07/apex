@@ -25,7 +25,7 @@ class ReceiptHost {
         if(message.error&&!ready){clearTimeout(timer);reject(new Error(message.error));}
         if(message.ready){ready=true;clearTimeout(timer);resolve(this);}
         const pending=this.pending.get(message.id);
-        if(pending){clearTimeout(pending.timer);this.pending.delete(message.id);pending.resolve(message.ok);}
+        if(pending){clearTimeout(pending.timer);this.pending.delete(message.id);if(message.error)pending.reject(new Error(message.error));else pending.resolve(message.ok);}
       });
       // stderr tüketilir; OCR metinleri ve kişisel bilgiler Apex günlüğüne taşınmaz.
       child.stderr.on('data',()=>{});child.stdin.on('error',()=>{});

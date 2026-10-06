@@ -163,11 +163,10 @@ class App:
         buttons.grid(row=10,column=0,columnspan=2,sticky='ew',pady=5)
         ttk.Button(buttons,text='Taslak kaydet',command=lambda:self.save(False)).pack(side='left')
         ttk.Button(buttons,text='Kontrol ettim, onayla',command=lambda:self.save(True),style='Accent.TButton').pack(side='left',padx=8)
-        self.review_text=tk.StringVar();self.review_ack=tk.BooleanVar()
+        self.review_text=tk.StringVar()
         check=ttk.LabelFrame(right,text='OKUMA KONTROLÜ',padding=6)
         check.grid(row=11,column=0,columnspan=2,sticky='ew',pady=6)
         ttk.Label(check,textvariable=self.review_text,wraplength=570,foreground='#915000').pack(fill='x')
-        ttk.Checkbutton(check,text='Okuma uyarılarını fotoğraftan kontrol ettim',variable=self.review_ack).pack(anchor='w')
         suggestions=ttk.Frame(check);suggestions.pack(fill='x',pady=3)
         self.vendor_choice=tk.StringVar();self.vendor_options={}
         self.vendor_suggestions=ttk.Combobox(suggestions,textvariable=self.vendor_choice,state='readonly',width=40)
@@ -207,11 +206,14 @@ class App:
         install(self,heading,top,bottom,pane,left,detail,right)
         self.reload_clients()
         root.after(150,self.poll)
+        from cep_ui import install as install_cep
+        install_cep(self,heading)
+        from desktop_plus import install as install_plus
+        install_plus(self,heading,top,pane,receipt_actions,tax_buttons)
 
     def mark_dirty(self):
         if not self.loading and self.current:
             self.dirty = True
-            self.review_ack.set(False)
             if getattr(self,'review_job',None):self.root.after_cancel(self.review_job)
             self.review_job=self.root.after(250,self.update_review)
 
@@ -356,6 +358,8 @@ class App:
                 from ocr_pipeline import read_image
                 text = read_image(image) if image and Path(image).exists() else old.get('ocr','')
                 d = draft(text,old.get('kind','gider'))
+                from desktop_ai import enrich
+                d=enrich(image,d,self.home) if image and Path(image).exists() else d
                 from reanalysis import merge
                 d=merge(old,d)
                 self.events.put(('reanalyzed',rid,d,image))
@@ -424,6 +428,7 @@ class App:
 
     def fill(self,d,image=''):
         self.loading = True
+        if hasattr(self,'document_type'):self.document_type.set('Z raporu' if d.get('is_z_report') else 'Fatura' if d.get('is_invoice') else 'Fiş')
         if getattr(self,'review_job',None):self.root.after_cancel(self.review_job);self.review_job=None
         d=self.store.recall_vendor(dict(d))
         self.vat_reviewed=d.get('vat_manually_reviewed',False)
@@ -449,7 +454,6 @@ class App:
         self.vendor_options={n+' / '+v:(v,n) for v,n in self.store.suggest_vendors(d)} if not d.get('vkn') and self.kind!='gelir' else {}
         self.vendor_suggestions['values']=list(self.vendor_options)
         self.vendor_choice.set('Kesin eşleşme yok; önerilerden seçebilirsiniz' if self.vendor_options else 'Cari önerisi gerekmiyor / bulunamadı')
-        self.review_ack.set(d.get('review_ack',False))
         for key,var in self.account_vars.items():var.set(d.get('account_override',{}).get(key,''))
         for k,v in self.vars.items():
             v.set(d.get(k,''))
@@ -484,10 +488,8 @@ class App:
         self.status.set('Kayıt ayı: '+self.store.receipt_period(self.current) if d.get('tarih') else 'Alanları kontrol edip kaydedin.')
 
     def open_image(self):
-        if self.current:
-            image = self.store.get(self.current)[0]
-            if image and Path(image).exists():
-                os.startfile(image)
+        from desktop_plus import viewer
+        return viewer(self)
 
     def new_manual(self):
         try:
@@ -552,6 +554,8 @@ class App:
                         if not embedded_text(part):text = finish(part,text)
                         if self.cancel_import.is_set(): break
                         d=draft(text,kind)
+                        from desktop_ai import enrich
+                        d=enrich(part,d,self.home)
                         if not d['kalemler'] and d.get('excluded_zero_total'):
                             report(source+f' / Fiş {index}: yalnız %0 KDV içeriyor; isteğiniz doğrultusunda aktarım kaydı eklenmedi.')
                             continue
@@ -590,6 +594,8 @@ class App:
                         self.import_notes.append(d.get('source','')+': kayıt eklenemedi; kaynak görüntü korundu. '+str(error))
                         self.status.set('Belge kaydedilemedi; yükleme notlarını kontrol edin.')
                     self.schedule_refresh()
+                elif event[0]=='desktop_callback':
+                    event[1]()
                 elif event[0]=='error':
                     self.status.set(event[1])
                 elif event[0]=='progress':
@@ -664,17 +670,23 @@ class App:
         self.field_widgets['aciklama']['values']=p['descriptions']
         self.status.set('Şablon silindi. Belge açıklamaları korunur.')
 
-    def form(self):
+    def form(self,approve=False):
         if not self.tax_editor.commit():raise ValueError("Düzenlenen KDV hücresini kontrol edin.")
         d = dict(self.store.get(self.current)[1]) if self.current else {}
         d.update({k:v.get().strip() for k,v in self.vars.items()})
         d['kind'] = self.kind
+        if hasattr(self,'document_type'):
+            d['is_z_report']=self.document_type.get()=='Z raporu'
+            d['is_invoice']=self.document_type.get()=='Fatura'
+            if d['is_z_report']:
+                if self.kind!='gelir':raise ValueError('Z raporu Gelir bölümünde işlenmelidir.')
+                d['vkn']='';d['aciklama']='Z RAPORU'
         if not d['vkn'] and (d.get('vkn_omitted') or (self.current and self.store.get(self.current)[1].get('vkn'))):d['vkn_omitted']=True
         elif d['vkn']:d.pop('vkn_omitted',None)
         from accounting import profile
         d['accounting_mode']=profile(self.store,self.client_id())['mode']
         d['custom_description']=d.get('kind')=='gelir' or d['aciklama'] in profile(self.store,self.client_id())['descriptions']
-        d['review_ack']=self.review_ack.get()
+        d['review_ack']=bool(approve)
         override={k:v.get().strip() for k,v in self.account_vars.items()}
         if any(override.values()):
             if not override['base'] or not override['closing']:raise ValueError('Belgeye özel matrah ve kapatma hesabını birlikte doldurun.')
@@ -700,7 +712,7 @@ class App:
             return
         try:
             old_period=self.store.receipt_period(self.current)
-            self.store.save(self.current,self.form(),approve)
+            self.store.save(self.current,self.form(approve),approve)
             self.period.set(self.store.receipt_period(self.current));self.active_period=self.period.get()
             image,saved,_,_=self.store.get(self.current)
             self.fill(saved,image)

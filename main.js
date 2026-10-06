@@ -11,6 +11,9 @@ const os = require('os');
 const crypto = require('crypto');
 
 const APP_NAME = 'Apex';
+const primaryInstance=app.requestSingleInstanceLock();
+if(!primaryInstance)app.quit();
+app.on('second-instance',(_event,args)=>{if(args.includes('--fis-asistani'))require('./receipt-desktop').standalone();else{const win=BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().includes('/app/index.html'));if(win){if(win.isMinimized())win.restore();win.focus();}else createWindow();}});
 const READER_PORT = 8765;
 const SYNC_PORT = 8788;
 const DEFAULT_UPDATE_MANIFEST_URL = 'https://api.github.com/repos/kasmkorkmaz07/apex/releases/latest';
@@ -3217,7 +3220,8 @@ ipcMain.handle('apex:download-and-install-update', async (_event, requested) => 
 app.whenReady().then(async () => {
   app.setName(APP_NAME);
   app.setAppUserModelId('com.kasim.apex');
-  createWindow();
+  if(!primaryInstance)return;
+  if(process.argv.includes('--fis-asistani'))require('./receipt-desktop').standalone();else createWindow();
 });
 
 app.on('window-all-closed', () => {
@@ -3260,12 +3264,12 @@ ipcMain.handle('apex:receipt-layout',async(event,payload={})=>{
   const win=BrowserWindow.fromWebContents(event.sender);if(!win)throw new Error('Apex penceresi bulunamadı.');
   let host=receiptHosts.get(event.sender.id);
   if(!host){
-    if(!payload.visible)return true;
+    if(!payload.visible&&!payload.preload)return true;
     const config=JSON.parse(fs.readFileSync(path.join(__dirname,'receipt-integration.json'),'utf8'));
-    host=new (require('./receipt-host').ReceiptHost)(win,config);receiptHosts.set(event.sender.id,host);
+    host=new (require('./receipt-desktop').ReceiptHost)(win,config);receiptHosts.set(event.sender.id,host);
     let approvedClose=false,checking=false;
     win.on('close',event=>{
-      if(approvedClose||!host.child)return;
+      if(approvedClose||!host.view)return;
       event.preventDefault();if(checking)return;checking=true;
       host.close().then(ok=>{
         if(ok){approvedClose=true;win.close();}
@@ -3276,5 +3280,6 @@ ipcMain.handle('apex:receipt-layout',async(event,payload={})=>{
   }
   const {screen}=require('electron');
   const scale=screen.getDisplayMatching(win.getBounds()).scaleFactor*event.sender.getZoomFactor();
+  if(payload.preload){await host.start();return true;}
   return host.layout(payload.rect,payload.visible,scale);
 });
