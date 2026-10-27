@@ -1,0 +1,14 @@
+/* Cep palette and components retained, with wider desktop composition. */
+html,body{min-width:360px}body{max-width:1280px!important;margin:0 auto!important;padding-bottom:86px!important}main{max-width:1200px!important}
+.desktop-actions{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0 18px}.desktop-actions button{flex:1 1 180px;min-height:44px}
+#pairQr,#seriesToggle{display:none!important}
+@media(min-width:900px){#home #documents{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}#home .document{margin:0;min-width:0}#home .document-select{min-width:0}#settings{max-width:860px;margin:auto}#editor{max-width:1100px;margin:auto}#editor .preview-button{max-height:340px;width:100%}#editor .preview-button img{max-height:310px;object-fit:contain}#tabbar{max-width:1280px;left:50%!important;transform:translateX(-50%);width:100%}#topbar{max-width:1280px;margin:auto}}
+@media(max-width:600px){.desktop-actions button{flex-basis:42%;font-size:12px;padding:10px 6px}}
+
+/* Desktop only: third tile on the gallery / QR row. */
+.actions{grid-template-columns:repeat(3,minmax(0,1fr))}
+.actions .desktop-compact-stat{grid-column:auto;margin:0;padding:8px 12px;min-width:0;min-height:74px;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:2px 8px;border-radius:18px;overflow:hidden}
+.desktop-compact-stat .stat-l small{font-size:9px}.desktop-compact-stat #statTotal{font-size:17px;line-height:1.2}
+.desktop-compact-stat #statCnt,.desktop-compact-stat #statPend{font-size:9px;padding:2px 5px}
+.desktop-compact-stat .tax-summary{width:100%;padding:0;margin:0;border:0;display:flex;justify-content:space-between;gap:6px}
+.desktop-compact-stat .tax-summary small{font-size:9px}.desktop-compact-stat .tax-summary b{font-size:12px}

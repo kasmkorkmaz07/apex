@@ -18,7 +18,7 @@ def uncertain_lines(texts,scores):
 def _tesseract_yolu():
     from pathlib import Path
     import os, shutil
-    executable = shutil.which('tesseract') or str(Path(os.environ.get('ProgramFiles','C:/Program Files'))/'Apex/resources/app.asar.unpacked/app/Tesseract-OCR/tesseract.exe')
+    executable = str(Path(__file__).resolve().parent.parent/'resources/app.asar.unpacked/app/Tesseract-OCR/tesseract.exe')
     models = Path(__file__).resolve().parent/'models'
     if not Path(executable).exists() or not (models/'tur.traineddata').exists():
         return None, None

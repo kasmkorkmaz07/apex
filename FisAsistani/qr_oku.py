@@ -24,6 +24,10 @@ def oku_qr(im):
     fonksiyon herhangi bir decode motorunu değiştirmeden çağrılabilir,
     yalnız 'detector' parametresiyle başka bir motor da enjekte edilebilir.
     """
+    import zxingcpp
+    codes = zxingcpp.read_barcodes(im.convert('RGB'), try_rotate=True, try_downscale=True, try_invert=True)
+    texts = [code.text for code in codes if code.text]
+    if texts:return texts
     import cv2
     import numpy as np
     detector = cv2.QRCodeDetector()

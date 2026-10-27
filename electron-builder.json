@@ -1,0 +1,34 @@
+{
+  "appId": "com.kasimmuhasebe.apex",
+  "productName": "Apex",
+  "artifactName": "Apex-Kurulum-v${version}.${ext}",
+  "directories": {
+    "output": "release",
+    "buildResources": "assets"
+  },
+  "compression": "normal",
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": [
+          "x64"
+        ]
+      }
+    ],
+    "icon": "assets/icon.ico",
+    "signAndEditExecutable": false
+  },
+  "nsis": {
+    "oneClick": false,
+    "perMachine": true,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "Apex",
+    "runAfterFinish": false,
+    "deleteAppDataOnUninstall": false,
+    "include": "scripts/installer-offline.nsh"
+  },
+  "electronVersion": "30.5.1"
+}

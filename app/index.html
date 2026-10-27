@@ -4,10 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Apex</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.1.1/tesseract.min.js"></script>
+<script src="backup-restore.js"></script>
+<script src="manual-restore-ui.js"></script>
+<script src="vendor/xlsx/xlsx.full.min.js"></script>
+<script src="vendor/pdfjs/pdf.min.js"></script>
+<script src="vendor/jszip/jszip.min.js"></script>
+<script src="vendor/tesseract/tesseract.min.js"></script>
 <style>
   :root {
     --bg: #f5f5f0;
@@ -1393,9 +1395,17 @@
   body.dark .gib-status { background: rgba(8,145,178,.13); border-color: rgba(56,189,248,.32); }
   body.dark .sync-help { background: #162a44; border-color: #2f68a8; color: #bfdbfe; }
   .bt-back-top{position:fixed;left:50%;bottom:18px;transform:translateX(-50%) translateY(14px);width:44px;height:44px;border-radius:999px;border:1px solid rgba(255,255,255,.24);background:rgba(15,23,42,.42);color:rgba(255,255,255,.9);display:none;align-items:center;justify-content:center;z-index:9999;box-shadow:0 10px 28px rgba(0,0,0,.22);backdrop-filter:blur(8px);cursor:pointer;font-size:22px;font-weight:800;opacity:.86}.bt-back-top.show{display:flex;transform:translateX(-50%) translateY(0)}.bt-back-top:hover{opacity:1}
+
+/* Data security: distinguish backup scope from technical tools. */
+.data-safe-head>.btn-cancel{padding:8px 12px;border:1px solid var(--border);border-radius:8px;flex-shrink:0;cursor:pointer;font:inherit;font-size:12px}
+.data-safe-modal{width:min(860px,calc(100vw - 28px));padding:22px;box-sizing:border-box}
+.safe-status{display:flex;align-items:flex-start;gap:10px;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:12px 14px;margin:14px 0}.safe-status strong,.safe-status span:not(.safe-status-dot){display:block;font-size:12px;line-height:1.55}.safe-status span:not(.safe-status-dot){color:var(--text2)}.safe-status-dot{width:8px;height:8px;border-radius:50%;background:#38bdf8;flex-shrink:0;margin-top:5px}
+.safe-primary-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.safe-task{display:flex;flex-direction:column;border:1px solid var(--border);border-radius:14px;padding:16px;background:var(--surface2)}.safe-task-label{font-size:10px;letter-spacing:1.3px;color:var(--text2);font-weight:800}.safe-task h4{font-size:16px;margin:7px 0}.safe-task p,.safe-scope p,.safe-details p,.safe-restore-note{font-size:12px;line-height:1.6;color:var(--text2);margin:5px 0 12px}.safe-time{font-size:11px;color:var(--text2);margin:0 0 12px}.safe-task button{margin-top:auto;align-self:flex-start}.safe-main-btn,.safe-secondary-btn{border:1px solid var(--border);border-radius:9px;padding:9px 12px;cursor:pointer;font:inherit;font-size:12px;font-weight:750;background:var(--surface2);color:var(--text)}.safe-main-btn{background:#0e7490;color:white;border-color:#0e7490}.safe-scope{padding:12px 0;margin:5px 0}.safe-scope strong{font-size:12px}.safe-scope p{margin-bottom:0}.safe-details{border-top:1px solid var(--border);padding:12px 0}.safe-details summary{cursor:pointer;font-size:13px;font-weight:750}.safe-details>.safe-secondary-btn{margin-top:10px}.safe-tool{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:14px;padding:12px;background:var(--surface2);border-radius:10px}.safe-tool strong{font-size:12px}.safe-tool p{margin-bottom:0}.safe-tool button{flex-shrink:0}.safe-tool small{font-size:10px;overflow-wrap:anywhere;color:var(--text2)}.safe-folder-actions{display:flex;gap:8px;flex-wrap:wrap}.safe-footer{border-top:1px solid var(--border);padding-top:12px;display:flex;justify-content:space-between;gap:12px;font-size:10px;color:var(--text2)}
+@media(max-width:620px){.safe-primary-grid{grid-template-columns:1fr}.safe-tool{align-items:flex-start;flex-direction:column}.safe-footer{flex-direction:column}.data-safe-modal{padding:16px}}
 </style>
 <link rel="stylesheet" href="stock.css">
 <link rel="stylesheet" href="receipt-ui.css">
+<link rel="stylesheet" href="tahakkuk-design.css">
 </head>
 <body>
   <button id="bt-back-top" class="bt-back-top" type="button" title="Yukarı çık">^</button>
@@ -2312,10 +2322,10 @@
 <!-- Restore Modal -->
 <div class="modal-overlay" id="restore-modal">
   <div class="modal" style="width:700px;max-width:calc(100vw - 28px)">
-    <h3>Yedek ve Kurtarma Noktaları</h3>
+    <h3>Beyanname kayıt noktaları</h3><p class="safe-restore-note">Yalnızca son iki beyanname kayıt durumunu geri yükler. Paket program kayıtları, ayarlar ve belge dosyaları bu işlemle değişmez.</p>
     <div class="safety-actions" style="margin-bottom:12px">
       <button class="mini-btn primary" onclick="createManualBackup()">Şimdi yedek al</button>
-      <button class="mini-btn" onclick="exportAllData()">JSON yedek indir</button>
+      <button class="mini-btn" onclick="exportAllData()">Beyanname JSON indir</button>
     </div>
     <div class="timeline" id="restore-list"></div>
     <div class="modal-btns">
@@ -2339,39 +2349,18 @@
 <div class="modal-overlay" id="data-safe-modal">
   <div class="modal data-safe-modal">
     <div class="data-safe-head">
-      <div>
-        <h3>Veri Güvenliği</h3>
-        <p>Apex kayıtları program dosyalarından ayrı olarak Belgeler/Apex klasöründe tutulur. Bu ekran yedek, geri yükleme, klasör ve güncelleme kontrollerini tek yerde toplar.</p>
-      </div>
+      <div><h3>Veri Güvenliği</h3><p>Bu bilgisayardaki Apex kayıtlarını yedekleyin ve önceki kayıt durumuna dönün.</p></div>
       <button class="btn-cancel" onclick="closeDataSafeModal()">Kapat</button>
     </div>
-    <div class="data-safe-grid">
-      <div class="data-safe-card">
-        <strong>Profil Ekle/Kaldır</strong>
-        <span>Yeni profil oluştur, eski profili kaldır veya profil şifresini yenile.</span>
-        <button class="mini-btn primary" style="margin-top:10px" onclick="openProfileManager()">Aç</button>
-      </div>
-      <div class="data-safe-card">
-        <strong>Son hızlı yedek</strong>
-        <span id="data-safe-last-quick">Henüz yedek yok</span>
-      </div>
-      <div class="data-safe-card">
-        <strong>Uygulama sürümü</strong>
-        <span>Test ve geliştirme sürümü</span>
-        <b id="data-safe-version">Apex</b>
-      </div>
+    <div class="safe-status"><span class="safe-status-dot"></span><div><strong>Yedekler bu bilgisayarda saklanıyor</strong><span>Ofis hesabı ve bulut üzerinden tam geri yükleme henüz etkin değil.</span></div></div>
+    <div class="safe-primary-grid">
+      <section class="safe-task"><div class="safe-task-label">YEDEK AL</div><h4>Apex kayıtlarını koru</h4><p>Beyanname kayıtlarını, paket program kayıtlarını ve Apex ayarlarını yerel yedek dosyasına kaydeder.</p><div class="safe-time">Son kayıt noktası: <span id="data-safe-last-quick">Kontrol ediliyor…</span></div><button class="safe-main-btn" onclick="createManualBackupFromDataSafe()">Şimdi yedek al</button></section>
+      <section class="safe-task"><div class="safe-task-label">GERİ DÖN</div><h4>Önceki beyanname kayıtları</h4><p>Son iki hızlı kayıt noktasından birini seçip beyanname kayıtlarını o durumuna döndürür. Paket programları ve dosyaları geri yüklemez.</p><div class="safe-folder-actions"><button class="safe-secondary-btn" onclick="openRestoreFromDataSafe()">Kayıt noktalarını göster</button><button id="manual-restore-button" class="safe-secondary-btn" onclick="chooseManualRestoreFile()">JSON yedeğinden geri yükle</button></div><input id="manual-restore-file" type="file" accept=".json,application/json" hidden onchange="restoreManualJsonFile(this)"><p>Başka bilgisayardan aldığınız Apex JSON yedeğini ana takip, gruplar, sıralama ve dönem kayıtlarıyla birebir geri yükleyin.</p><div class="manual-restore-sync-note" hidden><p>Yedek düzenini korumak için senkron duraklatıldı.</p><button class="safe-secondary-btn" onclick="resumeManualRestoreSync()">Senkronu yeniden aç</button></div></section>
     </div>
-    <div class="data-safe-actions">
-      <button class="primary" onclick="createManualBackupFromDataSafe()">Şimdi yedek al</button>
-      <button onclick="openRestoreModal()">Hızlı yedekler</button>
-      <button onclick="exportAllData()">JSON dışa aktar</button>
-      <button class="folder" onclick="openApexFolder('data')">Veri klasörü</button>
-      <button class="folder" onclick="openApexFolder('backups')">Yedek klasörü</button>
-      <button class="folder" onclick="openApexFolder('app')">Program klasörü</button>
-    </div>
-    <div class="update-note">
-      <strong>Güncelleme sistemi:</strong> Yeni Apex sürümünü önce bu bilgisayarda test edeceğiz. Onaydan sonra portable paket veya kurulum paketi diğer bilgisayarlara verilecek; kayıtlar Belgeler/Apex altında kaldığı için güncelleme program dosyasını değiştirir, mükellef kayıtlarını silmez.
-    </div>
+    <div class="safe-scope"><strong>Bu yedeğin kapsamı</strong><p>Fiş Asistanı’nın ayrı veritabanı ve fotoğrafları, PDF belgeleri, kaşe/imza dosyaları ve WhatsApp oturumu dahil değildir. Bu ekran henüz yeni bilgisayara eksiksiz ofis taşıma sağlamaz.</p></div>
+    <details class="safe-details"><summary>Kaydedilen yedek dosyaları</summary><p>Bilgisayarda tutulan JSON kayıt yedekleri. Son 30 dosya saklanır. Bu dosyalar, aşağıdaki beyanname JSON çıktısından farklıdır.</p><div id="backup-file-list" class="backup-file-list"></div><button class="safe-secondary-btn" onclick="openApexFolder('backups')">Yedeklerin bulunduğu klasörü aç</button></details>
+    <details class="safe-details"><summary>Diğer araçlar</summary><div class="safe-tool"><div><strong>Beyanname verisini dışa aktar</strong><p>Beyanname ve borç takip kayıtlarını JSON olarak indirir. Tam Apex yedeği değildir.</p></div><button class="safe-secondary-btn" onclick="exportAllData()">JSON indir</button></div><div class="safe-tool"><div><strong>Yerel kullanıcı profilleri</strong><p>Bu bilgisayardaki profilleri ve profil şifrelerini yönetir. Bulut ofis hesabı oluşturmaz.</p></div><button class="safe-secondary-btn" onclick="openProfilesFromDataSafe()">Profilleri yönet</button></div><div class="safe-tool"><div><strong>Klasörler</strong><p>Kayıtların veya programın bulunduğu klasörü açar; yedek almaz.</p><small id="data-safe-root"></small></div><div class="safe-folder-actions"><button class="safe-secondary-btn" onclick="openApexFolder('data')">Veri klasörü</button><button class="safe-secondary-btn" onclick="openApexFolder('app')">Program klasörü</button></div></div></details>
+    <div class="safe-footer"><span id="data-safe-version">Apex</span><span>Sürüm yükleme işlemleri ana ekrandaki Güncelleme bölümündedir.</span></div>
   </div>
 </div>
 
@@ -2819,7 +2808,7 @@
         </div>
       </div>
     </div>
-    <div class="package-hidden" id="smart-doc-view"><div id="receipt-native-host"><p id="receipt-launch-status">Fiş Asistanı hazırlanıyor…</p><button id="receipt-retry" onclick="window.openReceiptAssistant()" hidden>Tekrar dene</button></div></div>
+    <div class="package-hidden" id="smart-doc-view"><div id="receipt-native-host"><p id="receipt-launch-status" role="alert"></p><button id="receipt-retry" onclick="window.openReceiptAssistant()" hidden>Tekrar dene</button></div></div>
     <div class="package-shell package-hidden" id="stamp-signature-view" style="grid-template-columns:1fr">
       <div class="package-main-panel stamp-signature-panel">
         <iframe
@@ -2829,14 +2818,11 @@
         ></iframe>
       </div>
     </div>
-    <div class="package-hidden tg-view" id="tahakkuk-gonder-view">
-      <div class="tg-panel">
-        <h4>Zirve ve dönem</h4>
-        <div class="tg-field">
-          <label>Ana klasör</label>
-          <input id="tg-root" value="\\DESKTOP-MLBT1CR\zirvenet\zirvedata">
-        </div>
-        <div class="tg-period-row">
+<div class="package-hidden tg-design" id="tahakkuk-gonder-view"><div class="app">
+<header><div class="logo"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4Z"/></svg></div><div><h1>Tahakkuk Gönder</h1><p>Zirve belgelerini mükelleflere tek adımda ulaştır</p></div><div class="sp"></div><span class="pill offline" id="td-connection" aria-live="polite"><i></i><span>Zirve kontrol ediliyor</span></span><button id="td-sync" class="btn " onclick="tdRunAction(()=>tgCloudSyncNow(),this)">Senkron</button><button class="ib" onclick="toggleTheme()" title="Tema" aria-label="Temayı değiştir">◐</button><button class="ib" onclick="minimizeApexWindow()" title="Aşağı al" aria-label="Aşağı al">−</button><button class="ib" onclick="closePackagePrograms()" title="Kapat" aria-label="Tahakkuk Gönder ekranını kapat">×</button></header>
+<div class="grid">
+<aside class="card filters">
+<section class="sec"><h3><b>1</b>Dönem</h3>        <div class="tg-period-row">
           <div class="tg-field">
             <label>Yıl</label>
             <div class="tg-month-picker tg-year-picker" id="tg-year-picker">
@@ -2870,95 +2856,24 @@
             </div>
           </div>
         </div>
-        <h4>Kaynak</h4>
-        <div class="tg-check-grid">
-          <label class="tg-check"><input type="checkbox" id="tg-src-t"> Tahakkuk</label>
-          <label class="tg-check"><input type="checkbox" id="tg-src-b"> Beyanname</label>
-        </div>
-        <h4>Türler</h4>
-        <div class="tg-check-grid" id="tg-code-checks">
-          <label class="tg-check"><input type="checkbox" data-tg-code="KDV1"> KDV1</label>
-          <label class="tg-check"><input type="checkbox" data-tg-code="KDV2"> KDV2</label>
-                  <label class="tg-check"><input type="checkbox" data-tg-code="VERGI_LEVHASI"> VERGİ LEVHASI</label>
-                  <label class="tg-check"><input type="checkbox" data-tg-code="KDV4"> KDV4</label>
-                  <label class="tg-check"><input type="checkbox" data-tg-code="EBILDIRGE"> E-Bildirge</label>
-                  <label class="tg-check"><input type="checkbox" data-tg-code="MUHSGK"> MUHSGK</label>
-                  <label class="tg-check"><input type="checkbox" data-tg-code="GGECICI"> GGECICI</label>
-                  <label class="tg-check"><input type="checkbox" data-tg-code="GELIR"> GELIR</label>
-                  <label class="tg-check"><input type="checkbox" data-tg-code="KGECICI"> KGECICI</label>
-                  <label class="tg-check"><input type="checkbox" data-tg-code="KURUMLAR"> KURUMLAR</label>
-                  <label class="tg-check"><input type="checkbox" data-tg-code="HIZMET_LISTESI"> HİZMET LİSTESİ</label>
-                </div>
-        <div class="tg-folder-row">
-          <div class="tg-field">
-            <label>Klasörleme hedefi</label>
-            <input id="tg-folder-target" placeholder="Örn. C:\Users\kasim\Desktop\Tahakkuklar">
-          </div>
-          <button onclick="tgChooseFolderTarget()">Seç</button>
-        </div>
-        <div class="tg-actions">
-          <button class="green" onclick="tgScanSelected()">Kontrol Et</button>
-          <button class="primary" onclick="tgSendSelected()">GÖNDER</button>
-          <button onclick="tgFolderSelectedFiles()">KLASÖRLE</button>
-          <button onclick="tgPrintSelectedFiles()">YAZDIR</button>
-          <button onclick="tgCopySelectedFiles()">Panoya Kopyala</button>
-          <button onclick="tgClearSelections()">Temizle</button>
-          <button class="green" onclick="tgCloudSyncNow()">Senkron</button>
-          <button onclick="tgScheduleSelected()">Zamanlı</button>
-        </div>
-        <div class="tg-schedule-row">
-          <div class="tg-field">
-            <label>Zamanlı tarih</label>
-            <input id="tg-schedule-date" type="date">
-          </div>
-          <div class="tg-field">
-            <label>Saat</label>
-            <input id="tg-schedule-time" type="time">
-          </div>
-        </div>
-        <div class="tg-field">
-          <label>Mesaj</label>
-          <textarea id="tg-message" placeholder="Boş bırakılabilir"></textarea>
-        </div>
-      </div>
-      <div class="tg-panel">
-        <div class="tg-search">
-          <h4>Firmalar</h4>
-          <input id="tg-client-search" placeholder="Firma ara" oninput="tgRenderClients()">
-        </div>
-        <div class="tg-actions">
-          <button class="primary" onclick="tgOpenClientEditor()">Yeni Firma</button>
-          <button class="danger" onclick="tgDeleteSelectedClients()">Seçili Firmayı Sil</button>
-          <button onclick="tgToggleSpecial()">Özel Gönderim</button>
-        </div>
-        <div class="tg-table-wrap">
-          <table class="tg-table">
-            <thead><tr><th>Seç</th><th>Ünvan</th><th>Telefon</th><th>Zirve klasörü</th></tr></thead>
-            <tbody id="tg-client-rows"></tbody>
-          </table>
-        </div>
-        <div class="tg-special" id="tg-special-box">
-          <div class="tg-search" style="margin-top:10px">
-            <h4>Özel kişiler</h4>
-            <input id="tg-recipient-search" placeholder="Kişi ara" oninput="tgRenderRecipients()">
-          </div>
-          <div class="tg-actions">
-            <button class="primary" onclick="tgOpenRecipientEditor()">Yeni Özel Kişi</button>
-            <button class="danger" onclick="tgDeleteSelectedRecipients()">Seçili Kişiyi Sil</button>
-          </div>
-          <div class="tg-table-wrap" style="max-height:150px">
-            <table class="tg-table">
-              <thead><tr><th>Seç</th><th>İsim</th><th>Telefon</th></tr></thead>
-              <tbody id="tg-recipient-rows"></tbody>
-            </table>
-          </div>
-        </div>
-        <h4>Zamanlananlar</h4>
-        <div class="tg-schedule-list" id="tg-schedule-list"></div>
-        <h4 class="tg-log-title">İşlem günlüğü</h4>
-        <div class="tg-log" id="tg-log"></div>
-      </div>
-    </div>
+</section>
+<section class="sec"><h3><b>2</b>Kaynak</h3><div class="tg-check-grid"><label class="tg-check"><input type="checkbox" id="tg-src-t"> Tahakkuk</label><label class="tg-check"><input type="checkbox" id="tg-src-b"> Beyanname</label></div><p class="td-hint">Kaynak seçilmezse dosyaları elle seçebilirsiniz.</p></section>
+<section class="sec"><h3><b>3</b>Türler</h3><div id="tg-code-checks"><div class="cr"><label class="tg-check"><input type="checkbox" data-tg-code="KDV1"> KDV1</label><label class="tg-check"><input type="checkbox" data-tg-code="KDV2"> KDV2</label><label class="tg-check"><input type="checkbox" data-tg-code="KDV4"> KDV4</label></div><div class="cr"><label class="tg-check"><input type="checkbox" data-tg-code="MUHSGK"> MUHSGK</label><label class="tg-check"><input type="checkbox" data-tg-code="EBILDIRGE"> E-Bildirge</label><label class="tg-check"><input type="checkbox" data-tg-code="HIZMET_LISTESI"> Hizmet Listesi</label></div><div class="cr"><label class="tg-check"><input type="checkbox" data-tg-code="GGECICI"> GGEÇİCİ</label><label class="tg-check"><input type="checkbox" data-tg-code="GELIR"> Gelir</label><label class="tg-check"><input type="checkbox" data-tg-code="KURUMLAR"> Kurumlar</label><label class="tg-check"><input type="checkbox" data-tg-code="KGECICI"> KGEÇİCİ</label></div><div class="cr"><label class="tg-check"><input type="checkbox" data-tg-code="VERGI_LEVHASI"> Vergi Levhası</label></div></div></section>
+<section class="sec"><h3><b>4</b>Klasörleme</h3><div class="fr"><div><label class="f" for="tg-folder-target">Klasörleme hedefi</label><input class="in" id="tg-folder-target" placeholder="Kayıt klasörünü seçin" onchange="tdSavePaths()"></div><button  class="btn " onclick="tdRunAction(()=>tgChooseFolderTarget(),this)">Seç</button></div></section>
+<section class="sec"><h3><b>5</b>Zamanlama ve mesaj</h3><div class="row"><div><label class="f" for="tg-schedule-date">Zamanlı tarih</label><input class="in" id="tg-schedule-date" type="date"></div><div><label class="f" for="tg-schedule-time">Saat</label><input class="in" id="tg-schedule-time" type="time"></div></div><label class="f" for="tg-message" style="margin-top:10px">Mesaj</label><textarea class="in" id="tg-message" placeholder="Boş bırakılabilir"></textarea></section>
+</aside>
+<main class="card">
+<div class="stats"><div class="stat"><b id="td-total">0</b><span>Toplam mükellef</span></div><div class="stat"><b id="td-selected">0</b><span>Seçili</span></div><div class="stat"><b id="td-scheduled">0</b><span>Zamanlanan</span></div></div>
+<div class="tb"><div class="search"><span>⌕</span><input class="in" id="tg-client-search" placeholder="Firma ara…" aria-label="Firma ara" oninput="tgRenderClients()"></div><button class="btn" id="td-select-all" onclick="tdToggleAllVisible()">Tümünü seç</button><button  class="btn p" onclick="tdRunAction(()=>tgOpenClientEditor(),this)">＋ Yeni Firma</button><button  class="btn d" onclick="tdRunAction(()=>tgDeleteSelectedClients(),this)">Seçili Firmayı Sil</button></div>
+<div class="list" id="tg-client-rows" role="list" aria-label="Mükellefler"></div>
+</main>
+<aside class="right">
+<section class="card special-panel" id="tg-special-box"><h3>Özel kişiler</h3><div class="tb"><div class="search"><span>⌕</span><input class="in" id="tg-recipient-search" placeholder="Kişi ara…" aria-label="Özel kişi ara" oninput="tgRenderRecipients()"></div><button  class="btn p" onclick="tdRunAction(()=>tgOpenRecipientEditor(),this)">＋ Yeni Özel Kişi</button><button  class="btn d" onclick="tdRunAction(()=>tgDeleteSelectedRecipients(),this)">Seçili Kişiyi Sil</button></div><div class="list" id="tg-recipient-rows" role="list" aria-label="Özel kişiler"></div></section>
+<section class="card schedule-card empty" id="td-schedule-card"><h3>Zamanlananlar</h3><div id="tg-schedule-list" class="tg-schedule-list"></div></section>
+<section class="card"><h3>İşlem günlüğü</h3><div class="log" id="tg-log" role="log" aria-live="polite"></div><div class="sum" id="td-summary"></div><div class="action-grid" id="td-actions"><button  class="btn p" onclick="tdRunAction(()=>tgSendSelected(),this)">GÖNDER</button><button  class="btn " onclick="tdRunAction(()=>tgScanSelected(),this)">KONTROL ET</button><button  class="btn " onclick="tdRunAction(()=>tgFolderSelectedFiles(),this)">KLASÖRLE</button><button  class="btn " onclick="tdRunAction(()=>tgCopySelectedFiles(),this)">PANOYA KOPYALA</button><button  class="btn " onclick="tdRunAction(()=>tgPrintSelectedFiles(),this)">YAZDIR</button><button  class="btn " onclick="tdRunAction(()=>tgScheduleSelected(),this)">ZAMANLI</button><button  class="btn " onclick="tdRunAction(()=>tgClearSelections(),this)">TEMİZLE</button><button class="btn special-button" id="td-special-button" aria-expanded="false" aria-controls="tg-special-box" onclick="tgToggleSpecial()">ÖZEL GÖNDERİM</button></div></section>
+</aside></div>
+<div class="card td-root"><label for="tg-root">Ana klasör</label><input class="in" id="tg-root" value="\\DESKTOP-MLBT1CR\zirvenet\zirvedata" onchange="tdSavePaths();tdCheckConnection()"></div>
+</div></div>
     <div class="modal-btns package-modal-actions" style="margin-top:14px">
       <button class="btn-cancel package-hidden" id="package-back-btn" onclick="showPackageTools()">Araçlara dön</button>
       <button class="btn-cancel" onclick="closePackagePrograms()">Kapat</button>
@@ -3958,6 +3873,7 @@ function getLocalSyncUrl() {
 }
 
 function syncMode() {
+  if (manualRestoreInProgress || apexSyncSettings.manualRestorePaused) return ''; 
   if (apexSyncSettings.mode === 'baserow' && getBaserowTableId() && getBaserowToken()) return 'baserow';
   if (!apexSyncSettings.mode && getBaserowTableId() && getBaserowToken()) return 'baserow';
   return '';
@@ -3984,7 +3900,7 @@ async function saveSyncSettings() {
   const tableId = document.getElementById('sync-table-input').value.trim();
   const token = document.getElementById('sync-token-input').value.trim();
   if (tableId && token) {
-    apexSyncSettings = { mode: 'baserow', tableId, token };
+    apexSyncSettings = { mode: 'baserow', tableId, token, ...(apexSyncSettings.manualRestorePaused ? { manualRestorePaused: true } : {}) };
   } else if (!tableId && !token) {
     apexSyncSettings = {};
     await apexWriteJson(APEX_SYNC_SETTINGS_KEY, apexSyncSettings);
@@ -4192,6 +4108,7 @@ function normalizeProfileData(data) {
     notesData: data && data.notesData && typeof data.notesData === 'object' ? data.notesData : {},
     periodNotesData: data && data.periodNotesData && typeof data.periodNotesData === 'object' ? data.periodNotesData : {},
     clientDetails: data && data.clientDetails && typeof data.clientDetails === 'object' ? data.clientDetails : {},
+    addedClients: data && data.addedClients && typeof data.addedClients === 'object' ? data.addedClients : {},
     deletedClients: data && data.deletedClients && typeof data.deletedClients === 'object' ? data.deletedClients : {},
     deletedGroups: data && data.deletedGroups && typeof data.deletedGroups === 'object' ? data.deletedGroups : {},
     activityLog: Array.isArray(data && data.activityLog) ? data.activityLog.slice(0, 300) : [],
@@ -4445,7 +4362,11 @@ function mergeLogList(localList = [], remoteList = [], limit = 300) {
 function mergeTrackData(localInput, remoteInput) {
   const local = normalizeTrackData(normalizeProfileData(localInput || {}));
   const remote = normalizeTrackData(normalizeProfileData(remoteInput || {}));
+  const addedClients = mergeDeletedMaps(local.addedClients, remote.addedClients);
   const deletedClients = mergeDeletedMaps(local.deletedClients, remote.deletedClients);
+  Object.keys(deletedClients).forEach(key => {
+    if (stampValue(addedClients[key]) > stampValue(deletedClients[key])) delete deletedClients[key];
+  });
   const masterList = mergeNameLists(local.masterList, remote.masterList, deletedClients);
   const nameMap = new Map(masterList.map(name => [clientMatchKey(name), name]));
   const periodData = {};
@@ -4476,6 +4397,7 @@ function mergeTrackData(localInput, remoteInput) {
     periodNotesData,
     clientDetails,
     deletedClients,
+    addedClients,
     deletedGroups: mergeDeletedMaps(local.deletedGroups, remote.deletedGroups),
     activityLog: mergeLogList(local.activityLog, remote.activityLog, 300),
     auditLog: mergeLogList(local.auditLog, remote.auditLog, 1000),
@@ -4631,6 +4553,7 @@ async function syncApexSettingsRemote({ pushIfMissing = true } = {}) {
   try {
     lastSettingsSyncAt = Date.now();
     const remotePayload = await parseRemoteApexSettings(await readRemoteApexSettings());
+    if (!isAnySyncConfigured()) return false;
     const remoteSettings = normalizeSyncedApexSettings(remotePayload);
     const remoteStamp = stampValue(remoteSettings?.settingsUpdatedAt || remotePayload?.updatedAt);
     const localStamp = settingsStamp();
@@ -4705,6 +4628,7 @@ async function pullProfileType(profile, type, options) {
     remoteRaw = row.data;
   }
   const remoteData = normalizeProfileData(await decodeSyncDataFromBaserow(remoteRaw, {}));
+  if (!isAnySyncConfigured()) return false;
   const localData = normalizeProfileData(ensureTypeData(profile, type));
 
   if (hasProfileData(remoteData)) {
@@ -4730,6 +4654,7 @@ function isBaserowSyncConfigured() {
 }
 
 async function pullSync(firstRun) {
+  if (manualRestoreInProgress || apexSyncSettings.manualRestorePaused) { renderManualRestoreState(); return; }
   if (cellEditing) return;
   if (!isAnySyncConfigured()) {
     setSyncStatus('Kurulum bekliyor', 'offline');
@@ -4778,6 +4703,7 @@ async function pullSync(firstRun) {
 }
 
 function startSync() {
+  if (manualRestoreInProgress || apexSyncSettings.manualRestorePaused) { renderManualRestoreState(); return; }
   if (!isAnySyncConfigured()) {
     setSyncStatus('Kurulum bekliyor', 'offline');
     return;
@@ -5636,6 +5562,8 @@ function renameClientInsideTrackData(scopeData, oldName, newName) {
   }
   if (data.deletedClients) {
     delete data.deletedClients[newKey];
+    if (!data.addedClients) data.addedClients = {};
+    data.addedClients[newKey] = stampNow();
     data.deletedClients[oldKey] = stampNow();
   }
   return changed;
@@ -6150,7 +6078,7 @@ function createAutoBackup(reason) {
 async function createManualBackup() {
   const target = await createAutoBackup('manuel');
   renderRestoreList();
-  alert(target ? 'Yedek alındı. Apex yedek klasörüne de kaydedildi.' : 'Yedek alındı.');
+  alert(target ? 'Kayıt noktası oluşturuldu ve Apex kayıt yedeği dosyaya kaydedildi. Belge dosyaları ve Fiş Asistanı bu yedeğe dahil değildir.' : 'Beyanname kayıt noktası oluşturuldu; dosya yedeği kaydedilemedi. Bu işlem tam ofis yedeği değildir.');
 }
 
 function updateBackupStatus() {
@@ -6170,6 +6098,7 @@ function formatBytes(bytes) {
 }
 
 async function openDataSafeModal() {
+  renderManualRestoreState();
   if (!requireAccess('audit', 'Veri Güvenliği')) return;
   document.getElementById('data-safe-modal').classList.add('open');
   const paths = await loadApexPaths();
@@ -6204,9 +6133,12 @@ async function renderFileBackups() {
   list.innerHTML = files.map(file => {
     const d = new Date(file.modifiedAt);
     const date = Number.isNaN(d.getTime()) ? '' : d.toLocaleString('tr-TR');
-    return `<div class="backup-file-row"><div><strong>${file.name}</strong><span>${date} • ${formatBytes(file.size)}</span></div><span>JSON</span></div>`;
+    return `<div class="backup-file-row"><div><strong>${escapeHtml(file.name)}</strong><span>${date} • ${formatBytes(file.size)}</span></div><span>JSON</span></div>`;
   }).join('');
 }
+
+function openRestoreFromDataSafe() { closeDataSafeModal(); openRestoreModal(); }
+function openProfilesFromDataSafe() { closeDataSafeModal(); openProfileManager(); }
 
 async function createManualBackupFromDataSafe() {
   await createManualBackup();
@@ -6843,6 +6775,8 @@ function addMukellef() {
   }
   rememberUndo(currentProfile, currentType, `${name}: mükellef eklendi`);
   if (d.deletedClients) delete d.deletedClients[clientMatchKey(name)];
+      if (!d.addedClients) d.addedClients = {};
+      d.addedClients[clientMatchKey(name)] = stampNow();
   d.masterList.push(name);
   const k = periodKey(currentPeriod);
   if (!d.periodData[k]) d.periodData[k] = {};
@@ -7018,6 +6952,8 @@ async function confirmGroupTransfer() {
     names.forEach(name => {
       const key = clientMatchKey(name);
       if (target.deletedClients) delete target.deletedClients[key];
+      if (!target.addedClients) target.addedClients = {};
+      target.addedClients[key] = stampNow();
       const existing = (target.masterList || []).find(item => clientMatchKey(item) === key);
       const targetName = existing || name;
       if (!existing) {
@@ -7386,6 +7322,8 @@ function renameMukellef(oldName) {
   }
   if (idx !== -1) d.masterList[idx] = newName;
   if (d.deletedClients) delete d.deletedClients[newKey];
+      if (!d.addedClients) d.addedClients = {};
+      d.addedClients[newKey] = stampNow();
   if (oldKey !== newKey) {
     if (!d.deletedClients) d.deletedClients = {};
     d.deletedClients[oldKey] = stampNow();
@@ -7515,17 +7453,17 @@ function exportExcel() {
     rows = filtered.map(m => {
       const meta = exportStatusMeta(m.status);
       const bg = meta.bg;
-      const note = (m.note || '').replace(/</g,'&lt;');
-      return `<tr><td style="background:${bg};font-weight:500">${m.name}</td><td style="background:${bg}">${meta.label}</td><td style="background:${bg};text-align:right">${m.kdv?Number(m.kdv.replace(',','.')).toLocaleString('tr-TR',{minimumFractionDigits:2}):''}</td><td style="background:${bg}">${note}</td></tr>`;
+      const note = escapeHtml(String(m.note || '')).replace(/\r?\n/g,'<br style="mso-data-placement:same-cell">');
+      return `<tr><td style="background:${bg};font-weight:500">${escapeHtml(m.name)}</td><td style="background:${bg}">${escapeHtml(meta.label)}</td><td style="background:${bg};text-align:right">${m.kdv?Number(m.kdv.replace(',','.')).toLocaleString('tr-TR',{minimumFractionDigits:2}):''}</td><td style="background:${bg};white-space:pre-wrap;mso-number-format:'\\@'">${note}</td></tr>`;
     }).join('');
   } else {
     headerCols = '<th>Mükellef Adı / Unvanı</th><th>Durum</th><th>Açıklama</th><th>Not</th>';
     rows = filtered.map(m => {
       const meta = exportStatusMeta(m.status);
       const bg = meta.bg;
-      const note = (m.note || '').replace(/</g,'&lt;');
-      const desc = (m.desc||'').replace(/</g,'&lt;');
-      return `<tr><td style="background:${bg};font-weight:500">${m.name}</td><td style="background:${bg}">${meta.label}</td><td style="background:${bg}">${desc}</td><td style="background:${bg}">${note}</td></tr>`;
+      const note = escapeHtml(String(m.note || '')).replace(/\r?\n/g,'<br style="mso-data-placement:same-cell">');
+      const desc = escapeHtml(String(m.desc || ''));
+      return `<tr><td style="background:${bg};font-weight:500">${escapeHtml(m.name)}</td><td style="background:${bg}">${escapeHtml(meta.label)}</td><td style="background:${bg}">${desc}</td><td style="background:${bg};white-space:pre-wrap;mso-number-format:'\\@'">${note}</td></tr>`;
     }).join('');
   }
 
@@ -7567,6 +7505,7 @@ function printPdfPreview() {
   const frame = document.getElementById('pdf-preview-frame');
   if (!frame?.contentWindow) return;
   try {
+    frame.contentWindow.fitTrackingReport?.();
     frame.contentWindow.focus();
     frame.contentWindow.print();
   } catch (err) {
@@ -7578,62 +7517,35 @@ function printPdfPreview() {
 function exportPDF() {
   const isKDV = currentType === 'KDV-1';
   const filtered = getFilteredSorted();
-  const label = periodLabel(currentPeriod);
   const PER_PAGE = 30;
-
-  function badge(s) {
-    const meta = exportStatusMeta(s);
-    const dot = `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${meta.dot};vertical-align:middle;margin-right:5px;flex:0 0 auto"></span>`;
-    return `<span style="display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;min-width:116px;max-width:156px;overflow:hidden;text-overflow:ellipsis;padding:3px 8px;border-radius:16px;font-size:10.5px;line-height:1;font-weight:700;background:${meta.badgeBg};color:${meta.color};border:1px solid ${meta.border}">${dot}${meta.label}</span>`;
-  }
-
-  function buildRows(items, startIdx) {
-    return items.map((m, i) => {
-      const lastCol = isKDV
-        ? `<td style="text-align:right">${m.kdv ? Number(m.kdv.replace(',','.')).toLocaleString('tr-TR',{minimumFractionDigits:2})+' TL' : '\u2014'}</td>`
-        : `<td>${(m.desc||'').replace(/</g,'&lt;') || '\u2014'}</td>`;
-      const meta = exportStatusMeta(m.status);
-      return `<tr style="background:${meta.bg}">
-        <td style="text-align:center;color:#888">${startIdx+i+1}</td>
-        <td style="font-weight:500">${m.name}</td>
-        <td style="text-align:center">${badge(m.status)}</td>
-        ${lastCol}
-      </tr>`;
-    }).join('');
-  }
-
-  const lastColHeader = isKDV ? 'Ödenecek KDV' : 'Açıklama';
-  let pages = [];
-  for (let i = 0; i < filtered.length; i += PER_PAGE) pages.push(filtered.slice(i, i + PER_PAGE));
-  if (pages.length === 0) pages.push([]);
-
-  let pagesHtml = pages.map((page, pi) => `
-    <div style="${pi>0?'page-break-before:always;':''}">
-      <table style="width:100%;border-collapse:collapse">
-        <thead><tr>
-          <th style="background:#f5f5f0;padding:5px 8px;text-align:left;font-size:10px;border:1px solid #ddd;font-weight:600;text-transform:uppercase;letter-spacing:.3px;width:32px">#</th>
-          <th style="background:#f5f5f0;padding:5px 8px;text-align:left;font-size:10px;border:1px solid #ddd;font-weight:600;text-transform:uppercase;letter-spacing:.3px">Mükellef Adı / Unvanı</th>
-          <th style="background:#f5f5f0;padding:5px 8px;text-align:center;font-size:10px;border:1px solid #ddd;font-weight:600;text-transform:uppercase;letter-spacing:.3px;width:170px">Durum</th>
-          <th style="background:#f5f5f0;padding:5px 8px;text-align:${isKDV?'right':'left'};font-size:10px;border:1px solid #ddd;font-weight:600;text-transform:uppercase;letter-spacing:.3px;width:${isKDV?'120':'180'}px">${lastColHeader}</th>
-        </tr></thead>
-        <tbody>${buildRows(page, pi * PER_PAGE)}</tbody>
-      </table>
-    </div>`).join('');
-
-  const html = `<!DOCTYPE html><html lang="tr"><head><meta charset="UTF-8">
-  <title> </title>
-  <style>
-    body{font-family:'Segoe UI',Arial,sans-serif;color:#111;padding:4px 10px;font-size:12px;margin:0}
-    table{page-break-inside:auto}
-    tr{page-break-inside:avoid;break-inside:avoid}
-    td{padding:5px 8px;border:1px solid #e5e5e5;line-height:1.15}
-    @page{margin:6mm 8mm 6mm 8mm}
-    .bt-back-top{position:fixed;left:50%;bottom:18px;transform:translateX(-50%) translateY(14px);width:44px;height:44px;border-radius:999px;border:1px solid rgba(255,255,255,.24);background:rgba(15,23,42,.42);color:rgba(255,255,255,.9);display:none;align-items:center;justify-content:center;z-index:9999;box-shadow:0 10px 28px rgba(0,0,0,.22);backdrop-filter:blur(8px);cursor:pointer;font-size:22px;font-weight:800;opacity:.86}.bt-back-top.show{display:flex;transform:translateX(-50%) translateY(0)}.bt-back-top:hover{opacity:1}
-</style></head><body>
-  ${pagesHtml}
-  </body></html>`;
-
-  printHtmlDocument(html);
+  const pages = [];
+  for (let i=0;i<filtered.length;i+=PER_PAGE) pages.push(filtered.slice(i,i+PER_PAGE));
+  if (!pages.length) pages.push([]);
+  const pagesHtml=pages.map((items,page)=>`<section class="report-page"><table class="report-table">
+    <colgroup><col style="width:4%"><col style="width:26%"><col style="width:22%"><col style="width:16%"><col style="width:32%"></colgroup>
+    <thead><tr><th>#</th><th>Mükellef Adı / Unvanı</th><th>Durum</th><th>${isKDV?'Ödenecek KDV':'Açıklama'}</th><th>Not</th></tr></thead>
+    <tbody>${items.map((m,index)=>{
+      const meta=exportStatusMeta(m.status);
+      const value=isKDV?(m.kdv?Number(String(m.kdv).replace(',','.')).toLocaleString('tr-TR',{minimumFractionDigits:2})+' TL':'—'):(m.desc||'—');
+      return `<tr style="background:${meta.bg}"><td class="row-number">${page*PER_PAGE+index+1}</td><td class="client-name">${escapeHtml(m.name)}</td><td class="status"><span style="background:${meta.badgeBg};color:${meta.color};border-color:${meta.border}">${escapeHtml(meta.label)}</span></td><td class="${isKDV?'amount':'description'}">${escapeHtml(value)}</td><td class="client-note">${escapeHtml(String(m.note||''))}</td></tr>`;
+    }).join('')}</tbody></table></section>`).join('');
+  printHtmlDocument(`<!doctype html><html lang="tr"><head><meta charset="UTF-8"><title> </title><style>
+    @page{size:A4 portrait;margin:6mm 8mm}
+    *{box-sizing:border-box}html,body{margin:0;padding:0;color:#111;font-family:'Segoe UI',Arial,sans-serif}
+    .report-page{position:relative;width:194mm;height:283mm;overflow:hidden;break-after:page;page-break-after:always;break-inside:avoid}
+    .report-page:last-child{break-after:auto;page-break-after:auto}
+    .report-table{position:absolute;left:0;top:0;width:194mm;border-collapse:collapse;table-layout:fixed;transform-origin:top left;font-size:11px;line-height:1.2}
+    th{background:#f5f5f0;text-align:left;font-size:10px;font-weight:600;padding:5px 6px;border:1px solid #ddd}
+    td{padding:5px 6px;border:1px solid #e5e5e5;vertical-align:middle;overflow-wrap:anywhere;white-space:pre-wrap}
+    tr{break-inside:avoid;page-break-inside:avoid}
+    .row-number{text-align:center;color:#777}.client-name{font-weight:500}.amount{text-align:right}
+    .status{text-align:center;white-space:normal}.status span{display:inline-block;padding:3px 5px;border:1px solid;border-radius:14px;font-size:9.5px;font-weight:700}
+    .client-note{font-size:10px;line-height:1.2}
+    @media print{*{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+  </style></head><body>${pagesHtml}<script>
+    window.fitTrackingReport=()=>{for(const page of document.querySelectorAll('.report-page')){const table=page.querySelector('table');table.style.zoom='1';let scale=1;const limit=page.getBoundingClientRect().height-4;for(let i=0;i<8;i++){const height=table.getBoundingClientRect().height;if(height<=limit)break;scale*=limit/height*0.995;table.style.zoom=String(scale);}page.dataset.scale=scale;}};
+    window.addEventListener('load',window.fitTrackingReport);window.addEventListener('beforeprint',window.fitTrackingReport);document.fonts.ready.then(window.fitTrackingReport);
+  <\/script></body></html>`);
 }
 
 // ---- SETTINGS ----
@@ -8155,6 +8067,8 @@ function importExcel(input) {
         if (d.masterList.find(n=>clientMatchKey(n)===key)) { skipped++; }
         else {
           if (d.deletedClients) delete d.deletedClients[key];
+      if (!d.addedClients) d.addedClients = {};
+      d.addedClients[key] = stampNow();
           d.masterList.push(name);
           d.periodData[k][name]={status:'bos',kdv:'',desc:'',updatedAt: stampNow()};
           added++;
@@ -8816,6 +8730,7 @@ function tgApplyPayload(payload) {
   const remote = payload && typeof payload === 'object' ? payload : {};
   const localSchedules = Array.isArray(tgStore.meta?.schedules) ? tgStore.meta.schedules : [];
   tgStore.meta = {
+    ...tgStore.meta,
     updatedAt: remote.updatedAt || tgStamp(),
     deletedClientIds: remote.deletedClientIds || {},
     deletedRecipientIds: remote.deletedRecipientIds || {},
@@ -10795,7 +10710,7 @@ async function handleDeclarationControlFile(input) {
 async function readDeclarationPdfRows(file) {
   if (!window.pdfjsLib) throw new Error("PDF okuyucu yüklenemedi. İnternet bağlantısını kontrol edip Apex'i yeniden açın.");
   if (pdfjsLib.GlobalWorkerOptions && !pdfjsLib.GlobalWorkerOptions.workerSrc) {
-    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'vendor/pdfjs/pdf.worker.min.js';
   }
   const buffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument(pdfJsDocumentOptions(buffer)).promise;
@@ -12740,6 +12655,8 @@ function importMukellefNames(names, sourceLabel) {
     if (d.masterList.find(n => clientMatchKey(n) === key)) skipped++;
     else {
       if (d.deletedClients) delete d.deletedClients[key];
+      if (!d.addedClients) d.addedClients = {};
+      d.addedClients[key] = stampNow();
       d.masterList.push(name);
       d.periodData[k][name] = { status: 'bos', kdv: '', desc: '', updatedAt: stampNow() };
       added++;
@@ -13011,7 +12928,13 @@ async function ocrPdfPage(file, pageNumber = 1) {
   try {
     const imageUrl = await renderPdfPageImage(file, pageNumber, 230);
     if (!imageUrl) return '';
-    const result = await Tesseract.recognize(imageUrl, 'tur+eng');
+    const result = await Tesseract.recognize(imageUrl, 'tur+eng', {
+      workerPath: new URL('vendor/tesseract/worker.min.js', location.href).href,
+      corePath: new URL('vendor/tesseract-core/', location.href).href,
+      langPath: new URL('vendor/tessdata/', location.href).href,
+      workerBlobURL: false,
+      gzip: true
+    });
     return result?.data?.text || '';
   } catch (err) {
     return '';
@@ -13060,7 +12983,7 @@ async function readPdfText(file) {
 async function readPdfTextPages(file) {
   if (!window.pdfjsLib) return [];
   if (pdfjsLib.GlobalWorkerOptions && !pdfjsLib.GlobalWorkerOptions.workerSrc) {
-    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'vendor/pdfjs/pdf.worker.min.js';
   }
   try {
     const data = await file.arrayBuffer();
@@ -13904,9 +13827,9 @@ function arrayBufferToBase64(buffer) {
 function pdfJsDocumentOptions(data) {
   return {
     data,
-    cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',
+    cMapUrl: 'vendor/pdfjs/cmaps/',
     cMapPacked: true,
-    standardFontDataUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/standard_fonts/',
+    standardFontDataUrl: 'vendor/pdfjs/standard_fonts/',
     useSystemFonts: true,
     disableFontFace: false
   };
@@ -13973,7 +13896,7 @@ function pdfJsPreviewHtml(base64, pageNumber) {
     const pdfjs = parent && parent.pdfjsLib ? parent.pdfjsLib : window.pdfjsLib;
     if (!pdfjs) throw new Error('PDF.js yüklenemedi. Apex’i kapatıp tekrar açın.');
     if (pdfjs.GlobalWorkerOptions && !pdfjs.GlobalWorkerOptions.workerSrc) {
-      pdfjs.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      pdfjs.GlobalWorkerOptions.workerSrc = 'vendor/pdfjs/pdf.worker.min.js';
     }
     const raw = atob(${JSON.stringify(base64)});
     const bytes = new Uint8Array(raw.length);
@@ -14835,6 +14758,8 @@ initApexApp();
 <script src="stock-core.js"></script><script src="stock-reader.js"></script><script src="stock.js"></script>
 <script src="muavin-compare.js"></script><script src="compare-evidence.js"></script><script src="muavin-compare-ui.js"></script><script src="invoice-compare-clients.js"></script>
 <script src="receipt-ui.js"></script>
+<script src="tahakkuk-design.js"></script>
+<script src="phone-qrcode.js"></script><script src="phone-link-ui.js"></script>
 </body>
 </html>
 

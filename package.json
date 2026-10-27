@@ -1,9 +1,18 @@
 {
   "name": "apex-muhasebe",
-  "version": "1.0.129",
+  "version": "1.0.135",
   "description": "Apex muhasebe yonetim programi",
   "main": "main.js",
   "author": "Kasim Muhasebe",
   "license": "UNLICENSED",
-  "private": true
+  "private": true,
+  "scripts": {
+    "verify:bundle": "node scripts/verify-bundle.cjs",
+    "dist:offline": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build-offline.ps1"
+  },
+  "devDependencies": {
+    "@electron/asar": "3.4.1",
+    "electron-builder": "26.15.3"
+  },
+  "apexLocalPatch": "phone-traffic-pause-2026-10-23"
 }

@@ -1,0 +1,8 @@
+node_modules/
+release/
+build-offline/
+__pycache__/
+*.pyc
+.env
+*.db
+*.sqlite*

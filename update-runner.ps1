@@ -19,7 +19,7 @@ function Read-AppVersion([string]$installDir){
 try{
   if(!(Test-Path -LiteralPath $c.installer)){throw 'Kurulum paketi bulunamadı.'}
   if((Get-FileHash -LiteralPath $c.installer -Algorithm SHA256).Hash -ne $c.sha256){throw 'Kurulum paketi doğrulaması başarısız.'}
-  if([version](Get-Item -LiteralPath $c.installer).VersionInfo.ProductVersion -ne [version]($c.expectedVersion+'.0')){throw 'Kurulum dosyasının sürümü yanlış.'}
+  if(([version](Get-Item -LiteralPath $c.installer).VersionInfo.ProductVersion).ToString(3) -ne ([version]$c.expectedVersion).ToString(3)){throw 'Kurulum dosyasının sürümü yanlış.'}
   $probe=Join-Path $c.installDir ('.apex-write-'+[guid]::NewGuid()+'.tmp')
   [IO.File]::WriteAllText($probe,'test');Remove-Item -LiteralPath $probe
   @{ok=$true}|ConvertTo-Json|Set-Content -LiteralPath $c.ready -Encoding UTF8

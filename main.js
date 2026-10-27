@@ -11,6 +11,9 @@ const os = require('os');
 const crypto = require('crypto');
 
 const APP_NAME = 'Apex';
+const primaryInstance=app.requestSingleInstanceLock();
+if(!primaryInstance)app.quit();
+app.on('second-instance',(_event,args)=>{if(args.includes('--fis-asistani'))require('./receipt-desktop').standalone();else{const win=BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().includes('/app/index.html'));if(win){if(win.isMinimized())win.restore();win.focus();}else createWindow();}});
 const READER_PORT = 8765;
 const SYNC_PORT = 8788;
 const DEFAULT_UPDATE_MANIFEST_URL = 'https://api.github.com/repos/kasmkorkmaz07/apex/releases/latest';
@@ -204,8 +207,7 @@ function readInvoicePdf(id) {
 function popplerPdftoppmPath() {
   const candidates = [
     path.join(appUnpackedRoot(), 'tools', 'poppler', 'bin', 'pdftoppm.exe'),
-    path.join(appRoot(), 'tools', 'poppler', 'bin', 'pdftoppm.exe'),
-    'C:\\Users\\kasim\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\poppler\\Library\\bin\\pdftoppm.exe'
+    path.join(appRoot(), 'tools', 'poppler', 'bin', 'pdftoppm.exe')
   ];
   return candidates.find(candidate => candidate && fs.existsSync(candidate)) || '';
 }
@@ -2278,6 +2280,18 @@ function tahakkukNormalizePhone(value) {
   return digits;
 }
 
+ipcMain.handle('apex:tahakkuk-connection', async (_event, rootPath) => {
+  const target = String(rootPath || '').trim();
+  if (!target) return { ok: false, reason: 'Ana klasör seçilmedi' };
+  let timer;
+  try {
+    return await Promise.race([
+      fs.promises.stat(target).then(stat => ({ ok: stat.isDirectory(), reason: stat.isDirectory() ? '' : 'Klasör bulunamadı' })).catch(() => ({ ok: false, reason: 'Ana klasöre erişilemiyor' })),
+      new Promise(resolve => { timer = setTimeout(() => resolve({ ok: false, reason: 'Bağlantı yanıt vermedi' }), 4000); })
+    ]);
+  } finally { clearTimeout(timer); }
+});
+
 ipcMain.handle('apex:tahakkuk-load', async () => ({
   dataRoot: tahakkukDataRoot(),
   clients: tahakkukReadJson('mukellefler.json', []),
@@ -2409,6 +2423,7 @@ async function printPdfSilently(filePath) {
   if (path.extname(source).toLocaleLowerCase('tr-TR') !== '.pdf') throw new Error(`PDF değil: ${source}`);
 
   const candidates = [
+    path.join(appUnpackedRoot(), 'tools', 'SumatraPDF', 'SumatraPDF-3.6.1-64.exe'),
     path.join(process.resourcesPath || '', 'app', 'tools', 'SumatraPDF', 'SumatraPDF-3.6.1-64.exe'),
     path.join(app.getAppPath(), 'app', 'tools', 'SumatraPDF', 'SumatraPDF-3.6.1-64.exe'),
     path.join(__dirname, 'app', 'tools', 'SumatraPDF', 'SumatraPDF-3.6.1-64.exe')
@@ -2975,6 +2990,15 @@ ipcMain.handle('apex:export-snapshot', () => {
   return createBackupFile('manuel');
 });
 
+ipcMain.handle('apex:restore-declarations', (event, input, live) => {
+  if (!require('./restore-sender.cjs')(event, path.join(appRoot(), 'index.html'))) throw new Error('Geri yükleme yalnız Apex ana ekranından yapılabilir.');
+  return require('./manual-restore.cjs')(input, live, {
+    read: (key, fallback) => readJsonFile(dataFilePath(key), fallback),
+    write: (key, value) => writeJsonFile(dataFilePath(key), value),
+    file: dataFilePath, backup: createBackupFile
+  });
+});
+
 ipcMain.handle('apex:create-backup', (_event, reason, payload = null) => {
   return createBackupFile(reason, payload);
 });
@@ -3217,7 +3241,9 @@ ipcMain.handle('apex:download-and-install-update', async (_event, requested) => 
 app.whenReady().then(async () => {
   app.setName(APP_NAME);
   app.setAppUserModelId('com.kasim.apex');
-  createWindow();
+  if(!primaryInstance)return;
+  require('./phone-link.cjs').createPhoneLink({app,ipcMain,safeStorage,utilityProcess:require('electron').utilityProcess,dataRoot:tahakkukDataRoot}).start();
+  if(process.argv.includes('--fis-asistani'))require('./receipt-desktop').standalone();else createWindow();
 });
 
 app.on('window-all-closed', () => {
@@ -3260,12 +3286,12 @@ ipcMain.handle('apex:receipt-layout',async(event,payload={})=>{
   const win=BrowserWindow.fromWebContents(event.sender);if(!win)throw new Error('Apex penceresi bulunamadı.');
   let host=receiptHosts.get(event.sender.id);
   if(!host){
-    if(!payload.visible)return true;
+    if(!payload.visible&&!payload.preload)return true;
     const config=JSON.parse(fs.readFileSync(path.join(__dirname,'receipt-integration.json'),'utf8'));
-    host=new (require('./receipt-host').ReceiptHost)(win,config);receiptHosts.set(event.sender.id,host);
+    host=new (require('./receipt-desktop').ReceiptHost)(win,config);receiptHosts.set(event.sender.id,host);
     let approvedClose=false,checking=false;
     win.on('close',event=>{
-      if(approvedClose||!host.child)return;
+      if(approvedClose||!host.view)return;
       event.preventDefault();if(checking)return;checking=true;
       host.close().then(ok=>{
         if(ok){approvedClose=true;win.close();}
@@ -3276,5 +3302,6 @@ ipcMain.handle('apex:receipt-layout',async(event,payload={})=>{
   }
   const {screen}=require('electron');
   const scale=screen.getDisplayMatching(win.getBounds()).scaleFactor*event.sender.getZoomFactor();
+  if(payload.preload){await host.start();return true;}
   return host.layout(payload.rect,payload.visible,scale);
 });

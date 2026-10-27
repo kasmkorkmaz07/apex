@@ -262,8 +262,8 @@ def draft(text='', kind=None, use_vendor_hints=True):
                 except ValueError:
                     pass
         if grouped and sum(grouped.values())==money(d['toplam']):
-            d['kalemler']=[gross_line(r,str(g)) for r,g in grouped.items()]
-    if not d['kalemler'] and d['toplam'] and not rates:
+            d['kalemler']=[gross_line(r,str(g)) for r,g in grouped.items() if g>0]
+    if not d['kalemler'] and d['toplam'] and money(d['toplam'])>0 and not rates:
         # Basılı KDV ve brüt tutar tek bir oranı doğrularsa inceleme önerisi üret.
         vat_values=[]
         for line in lines:
@@ -355,6 +355,14 @@ def identity(d):
     if d.get('kind')=='gelir':key='GELIR|'+key
     return key+'|KDV:'+str(money(d['vat_partition'])) if d.get('vat_partition') is not None else key
 
+def storage_identity(d):
+    # Different VAT rows of the same document have independent storage keys.
+    key=identity(d)
+    if d.get('vat_partition') is None:
+        rates=sorted({money(x['oran']) for x in d.get('kalemler',[])})
+        if len(rates)==1:key+='|KDV:'+str(rates[0])
+    return key
+
 def vat_records(d):
     """Tek belgeden her pozitif KDV oranı için bağımsız kayıt üret."""
     groups={}
@@ -384,15 +392,16 @@ def posting_period(d,period):
             document=date_value(d['evrak_tarihi'])
         except ValueError:
             return d
-        d['tarih']=(start if document<start and not document_month(d) else document).strftime('%d.%m.%Y')
+        if d.get('period_override') and (document.year,document.month)>(start.year,start.month):raise ValueError('Evrak tarihi hedef aydan sonra; önceki aya taşınamaz.')
+        d['tarih']=(start if document<start and (d.get('period_override') or not document_month(d)) else document).strftime('%d.%m.%Y')
     return d
 
 def document_month(d):
-    """Gelirler ve faturalar kendi belge tarihleriyle kaydedilir."""
-    return bool(d.get('is_z_report') or d.get('is_invoice') or d.get('kind')=='gelir')
+    """Gelirler belge ayına; gider fişleri ve faturaları seçilen aya kaydedilir."""
+    return bool(d.get('is_z_report') or d.get('kind')=='gelir')
 
 def actual_period(d, fallback):
-    if document_month(d) and d.get('evrak_tarihi'):
+    if not d.get('period_override') and document_month(d) and d.get('evrak_tarihi'):
         try:return date_value(d['evrak_tarihi']).strftime('%m-%Y')
         except ValueError:pass
     return fallback
@@ -451,6 +460,11 @@ class Store:
                 self.db.execute('INSERT OR IGNORE INTO vendor_aliases VALUES (?,?)',(key,d['vkn']))
 
     def recall_vendor(self,d):
+        if (d.get('qr_raw') or d.get('ai_used')) and not (d.get('is_z_report') or d.get('custom_description') or d.get('vkn_omitted')):
+            exact=self.db.execute('SELECT name FROM vendors WHERE vkn=?',(d.get('vkn',''),)).fetchone()
+            if exact:
+                d['aciklama']=exact[0];d['vendor_source']='Ünvan: QR / Gemini kimliğiyle kayıtlı cari eşleşmesi.'
+                return d
         if d.get('kind')=='gelir' or d.get('is_invoice') or d.get('custom_description') or d.get('vkn_omitted'):return d
         row=self.db.execute('SELECT name FROM vendors WHERE vkn=?',(d.get('vkn',''),)).fetchone()
         if row:
@@ -557,7 +571,7 @@ class Store:
         if len(parts)<2: return
         client,image,period=self.db.execute('SELECT client,image,period FROM receipts WHERE id=?',(rid,)).fetchone()
         for i,part in enumerate(parts):
-            key=identity(part) if approve else None
+            key=storage_identity(part) if approve else None
             if i==0:
                 self.db.execute('UPDATE receipts SET data=?,identity=? WHERE id=?',(json.dumps(part,ensure_ascii=False),key,rid))
             else:
@@ -680,7 +694,7 @@ def export_xlsx(path, records, headers=True, allow_empty=False, kind='gider', wo
         for line in d['kalemler']:
             if money(line['oran'])==0 and kind!='gelir':
                 continue
-            values=[d['kod'],date_value(d['evrak_tarihi'] if kind=='gelir' else d['tarih']),d['evrak_no']]
+            values=[d['kod'],date_value(d['tarih']),d['evrak_no']]
             if kind!='gelir':values.append(d.get('vkn',''))
             ws.append(values+[d['aciklama'],float(money(line['oran'])),float(money(line['matrah'])+money(line['kdv']))])
             r = ws.max_row

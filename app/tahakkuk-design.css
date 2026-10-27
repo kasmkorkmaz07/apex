@@ -1,0 +1,213 @@
+/* Colors, typography and components adapted directly from tasarim-1.html. */
+#tahakkuk-gonder-view{--bg: #f3f6f5; --s: #fff; --s2: #f6f9f8; --b: #e2eae7; --t: #0f1f1b; --t2: #5b6b66; --g: #10a56c; --g2: #07504a; --gs: #e4f7ee; --am: #b45309; --ams: #fff4e0; --bl: #2563eb; --bls: #e8effe; --rd: #dc2626; --sh: 0 1px 2px rgba(15,31,27,.06),0 8px 24px rgba(15,31,27,.06); box-sizing: border-box; padding-top: env(safe-area-inset-top,0px); padding-bottom: env(safe-area-inset-bottom,0px);}
+
+body.dark #tahakkuk-gonder-view{--bg: #060c0b; --s: #0d1614; --s2: #121e1b; --b: #1f302b; --t: #eaf4f0; --t2: #93aaa2; --g: #2dd4a0; --gs: rgba(45,212,160,.12); --am: #f2b35a; --ams: rgba(242,179,90,.12); --bl: #8bb0ff; --bls: rgba(139,176,255,.14); --sh: 0 0 0 1px rgba(255,255,255,.02),0 12px 32px rgba(0,0,0,.45); color-scheme: dark;}
+
+
+body.dark #tahakkuk-gonder-view .btn.p{color: rgb(4, 35, 26);}
+body.dark #tahakkuk-gonder-view{background: radial-gradient(900px 500px at 15% -10%,rgba(45,212,160,.07),transparent 60%),var(--bg);}
+#tahakkuk-gonder-view ::-webkit-scrollbar{width: 10px; height: 10px;}
+#tahakkuk-gonder-view ::-webkit-scrollbar-thumb{background-image: ; background-position-x: ; background-position-y: ; background-size: ; background-repeat: ; background-attachment: ; background-origin: ; background-color: ; border-radius: 9px; border: 2px solid transparent; background-clip: content-box;}
+#tahakkuk-gonder-view *{box-sizing: border-box;}
+#tahakkuk-gonder-view{scroll-padding-top: env(safe-area-inset-top,0px);}
+#tahakkuk-gonder-view{margin: 0px; background: var(--bg); color: var(--t); font: 14px / 1.45 Inter, "Segoe UI", system-ui, sans-serif; -webkit-font-smoothing: antialiased;}
+#tahakkuk-gonder-view button,#tahakkuk-gonder-view input,#tahakkuk-gonder-view textarea{font: inherit; color: inherit;}
+#tahakkuk-gonder-view .app{max-width: 1440px; margin: 0px auto; padding: 20px 24px 96px;}
+#tahakkuk-gonder-view header{display: flex; align-items: center; gap: 14px; margin-bottom: 20px;}
+#tahakkuk-gonder-view .logo{width: 44px; height: 44px; border-radius: 14px; background: linear-gradient(145deg, rgb(20, 155, 102), rgb(7, 80, 74)); display: grid; place-items: center; box-shadow: rgba(16, 165, 108, 0.35) 0px 6px 16px;}
+#tahakkuk-gonder-view h1{font-size: 20px; margin: 0px; letter-spacing: -0.02em;}
+#tahakkuk-gonder-view header p{margin: 0px; color: var(--t2); font-size: 13px;}
+#tahakkuk-gonder-view .sp{flex: 1 1 0%;}
+#tahakkuk-gonder-view .pill{display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 99px; background: var(--gs); color: var(--g); font-weight: 600; font-size: 12px;}
+#tahakkuk-gonder-view .pill i{width: 7px; height: 7px; border-radius: 50%; background: var(--g); box-shadow: rgba(16, 165, 108, 0.2) 0px 0px 0px 3px;}
+#tahakkuk-gonder-view .ib{width: 38px; height: 38px; border-radius: 12px; border: 1px solid var(--b); background: var(--s); cursor: pointer; font-size: 16px;}
+#tahakkuk-gonder-view .grid{display: grid; grid-template-columns: 360px minmax(0px, 1fr) 320px; gap: 18px; align-items: start;}
+#tahakkuk-gonder-view .card{background: var(--s); border: 1px solid var(--b); border-radius: 18px; box-shadow: var(--sh); padding: 18px;}
+#tahakkuk-gonder-view .card h3{margin: 0px 0px 12px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--t2); display: flex; align-items: center; gap: 8px;}
+#tahakkuk-gonder-view .card h3 b{width: 20px; height: 20px; border-radius: 7px; background: var(--gs); color: var(--g); display: grid; place-items: center; font-size: 11px; letter-spacing: 0px;}
+#tahakkuk-gonder-view .sec + .sec{margin-top: 18px; padding-top: 18px; border-top: 1px dashed var(--b);}
+#tahakkuk-gonder-view label.f{display: block; font-size: 12px; color: var(--t2); margin: 0px 0px 6px;}
+#tahakkuk-gonder-view .in{width: 100%; padding: 10px 12px; border: 1px solid var(--b); border-radius: 12px; background: var(--s2); outline: none; transition: 0.15s;}
+#tahakkuk-gonder-view .in:focus{border-color: var(--g); box-shadow: rgba(16, 165, 108, 0.15) 0px 0px 0px 4px; background: var(--s);}
+#tahakkuk-gonder-view .row{display: flex; gap: 10px;}
+#tahakkuk-gonder-view .row > *{flex: 1 1 0%;}
+#tahakkuk-gonder-view .chips{display: flex; flex-wrap: wrap; gap: 7px;}
+#tahakkuk-gonder-view .chip{padding: 7px 12px; border-radius: 99px; border: 1px solid var(--b); background: var(--s2); cursor: pointer; font-size: 12.5px; font-weight: 500; user-select: none; transition: 0.15s;}
+#tahakkuk-gonder-view .chip:hover{border-color: var(--g);}
+#tahakkuk-gonder-view .chip.on{background: var(--g); border-color: var(--g); color: rgb(255, 255, 255); box-shadow: rgba(16, 165, 108, 0.3) 0px 4px 10px;}
+#tahakkuk-gonder-view .seg{display: flex; background: var(--s2); border: 1px solid var(--b); border-radius: 12px; padding: 3px;}
+#tahakkuk-gonder-view .seg button{flex: 1 1 0%; border: 0px; background: none; padding: 8px; border-radius: 9px; cursor: pointer; font-weight: 600; color: var(--t2);}
+#tahakkuk-gonder-view .seg button.on{background: var(--s); color: var(--g); box-shadow: var(--sh);}
+#tahakkuk-gonder-view .months{display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px;}
+#tahakkuk-gonder-view .months .chip{text-align: center; padding: 7px 0px; border-radius: 10px;}
+#tahakkuk-gonder-view textarea.in{resize: none; height: 70px;}
+#tahakkuk-gonder-view .tb{display: flex; gap: 10px; align-items: center; margin-bottom: 14px; flex-wrap: wrap;}
+#tahakkuk-gonder-view .search{position: relative; flex: 1 1 0%; min-width: 200px;}
+#tahakkuk-gonder-view .search input{padding-left: 38px;}
+#tahakkuk-gonder-view .search span{position: absolute; left: 13px; top: 9px; opacity: 0.5;}
+#tahakkuk-gonder-view .btn{border: 1px solid var(--b); background: var(--s); padding: 10px 16px; border-radius: 12px; cursor: pointer; font-weight: 600; transition: 0.15s;}
+#tahakkuk-gonder-view .btn:hover{transform: translateY(-1px); box-shadow: var(--sh);}
+#tahakkuk-gonder-view .btn.p{background: linear-gradient(135deg, rgb(20, 179, 119), rgb(10, 122, 88)); color: rgb(255, 255, 255); border: 0px; box-shadow: rgba(16, 165, 108, 0.35) 0px 8px 20px;}
+#tahakkuk-gonder-view .btn.d{color: var(--rd);}
+#tahakkuk-gonder-view .pk{position: relative;}
+#tahakkuk-gonder-view .pkb{width: 100%; display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; border: 1px solid var(--b); border-radius: 12px; background: var(--s2); cursor: pointer; font-weight: 600;}
+#tahakkuk-gonder-view .pkb::after{content: "▾"; color: var(--t2); margin-left: 8px;}
+#tahakkuk-gonder-view .pk.open .pkb{border-color: var(--g); box-shadow: 0 0 0 4px var(--gs);}
+#tahakkuk-gonder-view .pn{display: none; position: absolute; top: calc(100% + 8px); z-index: 20; width: 270px; background: var(--s); border: 1px solid var(--b); border-radius: 16px; box-shadow: rgba(0, 0, 0, 0.28) 0px 18px 48px; padding: 12px;}
+#tahakkuk-gonder-view .pk.open .pn{display: block;}
+#tahakkuk-gonder-view .pk.r .pn{right: 0px;}
+#tahakkuk-gonder-view .pg{display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;}
+#tahakkuk-gonder-view .pg .chip{text-align: center; padding: 7px 0px; border-radius: 10px;}
+#tahakkuk-gonder-view .pg .chip.w{grid-column: span 4;}
+#tahakkuk-gonder-view .cy{display: flex; align-items: center; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--b); font-size: 12px; color: var(--t2);}
+#tahakkuk-gonder-view .cy input{padding: 7px 10px;}
+#tahakkuk-gonder-view .cr{display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 7px;}
+#tahakkuk-gonder-view .sp2{margin-top: 14px; padding-top: 14px; border-top: 1px dashed var(--b); display: none;}
+#tahakkuk-gonder-view .sp2.open{display: block;}
+#tahakkuk-gonder-view .rec{display: grid; grid-template-columns: 22px 1fr auto; gap: 12px; align-items: center; padding: 9px 12px; border-radius: 12px; border: 1px solid transparent; cursor: pointer;}
+#tahakkuk-gonder-view .rec:hover{background: var(--s2); border-color: var(--b);}
+#tahakkuk-gonder-view .rec.sel{background: var(--gs); border-color: var(--g);}
+#tahakkuk-gonder-view .rec.sel .cb{background: var(--g); border-color: var(--g);}
+#tahakkuk-gonder-view .hd{font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--t2); font-weight: 700; margin: 0px 0px 10px;}
+#tahakkuk-gonder-view .btn.on{background: var(--gs); border-color: var(--g); color: var(--g);}
+#tahakkuk-gonder-view .fr{display: flex; gap: 10px; align-items: flex-end;}
+#tahakkuk-gonder-view .fr > div{flex: 1 1 0%;}
+#tahakkuk-gonder-view .stats{display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 14px;}
+#tahakkuk-gonder-view .stat{background: var(--s2); border: 1px solid var(--b); border-radius: 14px; padding: 12px 14px;}
+#tahakkuk-gonder-view .stat b{font-size: 22px; letter-spacing: -0.02em; display: block;}
+#tahakkuk-gonder-view .stat span{font-size: 12px; color: var(--t2);}
+#tahakkuk-gonder-view .list{display: flex; flex-direction: column; gap: 6px; max-height: 560px; overflow: auto; padding-right: 4px;}
+#tahakkuk-gonder-view .item{display: grid; grid-template-columns: 22px 40px minmax(0px, 1.4fr) minmax(0px, 1fr); gap: 12px; align-items: center; padding: 10px 12px; border: 1px solid transparent; border-radius: 14px; cursor: pointer; transition: 0.15s;}
+#tahakkuk-gonder-view .item:hover{background: var(--s2); border-color: var(--b);}
+#tahakkuk-gonder-view .item.sel{background: var(--gs); border-color: rgba(16, 165, 108, 0.45);}
+#tahakkuk-gonder-view .cb{width: 20px; height: 20px; border-radius: 7px; border: 1.5px solid var(--b); display: grid; place-items: center; background: var(--s); color: rgb(255, 255, 255); font-size: 12px;}
+#tahakkuk-gonder-view .sel .cb{background: var(--g); border-color: var(--g);}
+#tahakkuk-gonder-view .av{width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; font-weight: 700; font-size: 13px; color: rgb(255, 255, 255);}
+#tahakkuk-gonder-view .nm{font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
+#tahakkuk-gonder-view .fd{font-size: 12px; color: var(--t2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
+#tahakkuk-gonder-view .fl{font: 12px ui-monospace, Menlo, Consolas, monospace; color: var(--t2); background: var(--s2); border: 1px solid var(--b); padding: 4px 8px; border-radius: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
+#tahakkuk-gonder-view .sch{padding: 12px; border: 1px solid var(--b); border-radius: 14px; background: var(--s2); margin-bottom: 8px;}
+#tahakkuk-gonder-view .sch .h{display: flex; justify-content: space-between; font-weight: 600; margin-bottom: 4px;}
+#tahakkuk-gonder-view .sch small{color: var(--t2);}
+#tahakkuk-gonder-view .tag{font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 99px; background: var(--bls); color: var(--bl);}
+#tahakkuk-gonder-view .log{font: 12px / 1.6 ui-monospace, Menlo, Consolas, monospace; color: var(--t2); max-height: 200px; overflow: auto;}
+#tahakkuk-gonder-view .log div{padding: 6px 0px; border-bottom: 1px dashed var(--b);}
+#tahakkuk-gonder-view .log em{font-style: normal; color: var(--g); margin-right: 6px;}
+#tahakkuk-gonder-view .bar{position: fixed; left: 0px; right: 0px; bottom: 0px; padding: 12px 24px calc(12px + env(safe-area-inset-bottom,0px)); background: color-mix(in srgb,var(--s) 85%,transparent); backdrop-filter: blur(14px); border-top: 1px solid var(--b); z-index: 5;}
+#tahakkuk-gonder-view .bar .in2{max-width: 1440px; margin: 0px auto; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;}
+#tahakkuk-gonder-view .bar .sum{font-weight: 600;}
+#tahakkuk-gonder-view .bar .sum span{color: var(--t2); font-weight: 400;}
+#tahakkuk-gonder-view .right{display: flex; flex-direction: column; gap: 18px;}
+@media (max-width: 1180px){#tahakkuk-gonder-view .grid{grid-template-columns: 340px 1fr;}
+#tahakkuk-gonder-view .right{grid-column: 1 / -1;}}
+@media (max-width: 820px){#tahakkuk-gonder-view .grid{grid-template-columns: 1fr;}
+#tahakkuk-gonder-view .item{grid-template-columns: 22px 40px 1fr auto;}
+#tahakkuk-gonder-view .item .fl{display: none;}
+#tahakkuk-gonder-view .pn{width: 240px;}
+#tahakkuk-gonder-view .app{padding: 16px 14px 110px;}
+#tahakkuk-gonder-view .bar{padding-left: 14px; padding-right: 14px;}}
+#package-modal .package-modal.tg-fullscreen{position:fixed;inset:12px;width:auto;max-width:none;height:auto;max-height:none;margin:0;padding:0;border-radius:20px;overflow:auto;background:#f3f6f5}
+body.dark #package-modal .package-modal.tg-fullscreen{background:#060c0b}
+#package-modal .tg-fullscreen>.package-modal-title{display:none}
+#tahakkuk-gonder-view{display:block;min-height:100%;border-radius:20px}
+#tahakkuk-gonder-view .app{padding:24px 24px 18px;max-width:1540px}
+#tahakkuk-gonder-view header{flex-wrap:wrap}
+#tahakkuk-gonder-view header p{margin:2px 0 0}
+#tahakkuk-gonder-view .logo{flex-shrink:0}
+#tahakkuk-gonder-view .grid{grid-template-columns:320px minmax(0,1fr) 320px;align-items:start}
+#tahakkuk-gonder-view .card{min-width:0}
+#tahakkuk-gonder-view .card h3{font-weight:700}
+#tahakkuk-gonder-view .row>div{min-width:0}
+#tahakkuk-gonder-view .btn{font-size:12px;line-height:1.35;white-space:normal}
+#tahakkuk-gonder-view .btn:disabled{opacity:.55;cursor:wait;transform:none}
+#tahakkuk-gonder-view .btn:focus-visible,#tahakkuk-gonder-view input:focus-visible{outline:2px solid var(--g);outline-offset:3px}
+#tahakkuk-gonder-view .tb{gap:8px}
+#tahakkuk-gonder-view .search{min-width:130px;flex-basis:100%}
+#tahakkuk-gonder-view .search input{margin:0;width:100%}
+#tahakkuk-gonder-view input.in,#tahakkuk-gonder-view textarea.in{font:inherit;font-size:13px;margin:0;color:var(--t)}
+#tahakkuk-gonder-view .in::placeholder{color:var(--t2);opacity:.8}
+#tahakkuk-gonder-view .in{min-width:0}
+#tahakkuk-gonder-view .list{max-height:calc(100vh - 310px);min-height:120px;gap:0;padding-right:4px}
+#tahakkuk-gonder-view .item{grid-template-columns:20px minmax(0,1.35fr) minmax(0,.9fr);min-height:55px;border:0;border-bottom:1px solid var(--b);border-radius:0;padding:10px 8px;gap:10px}
+#tahakkuk-gonder-view .item.sel{border:1px solid color-mix(in srgb,var(--g) 45%,transparent);border-radius:12px;margin:3px 0}
+#tahakkuk-gonder-view .item:hover{background:var(--s2)}
+#tahakkuk-gonder-view .item.sel:hover{background:var(--gs)}
+#tahakkuk-gonder-view .nm{font-size:13px;font-weight:600;line-height:1.4}
+#tahakkuk-gonder-view .fl{font-size:10px;padding:4px 6px}
+#tahakkuk-gonder-view input.cb{appearance:auto;accent-color:var(--g);margin:0;width:18px;height:18px;cursor:pointer;box-shadow:none}
+#tahakkuk-gonder-view .row-edit{padding:0;border:0;background:none;text-align:left;cursor:pointer;min-width:0;color:inherit;width:100%;display:block}
+#tahakkuk-gonder-view .row-edit .nm,#tahakkuk-gonder-view .row-edit .fd{display:block}
+#tahakkuk-gonder-view .item .row-edit{align-self:stretch}
+#tahakkuk-gonder-view .stat{padding:10px 12px}
+#tahakkuk-gonder-view .stat b{font-size:22px}
+#tahakkuk-gonder-view .stat span{font-size:11px}
+#tahakkuk-gonder-view .tg-check-grid{display:flex;flex-wrap:wrap;gap:7px;margin:0}
+#tahakkuk-gonder-view .tg-check{position:relative;padding:7px 11px;border-radius:99px;border:1px solid var(--b);background:var(--s2);cursor:pointer;font-size:12.5px;font-weight:500;color:var(--t);display:inline-flex;align-items:center;justify-content:center;line-height:1.4}
+#tahakkuk-gonder-view .tg-check input{position:absolute;opacity:0;width:1px;height:1px;pointer-events:none}
+#tahakkuk-gonder-view .tg-check:has(input:checked){background:var(--g);border-color:var(--g);color:#fff;box-shadow:0 4px 10px rgba(16,165,108,.3)}
+#tahakkuk-gonder-view .tg-check:has(input:focus-visible){outline:2px solid var(--g);outline-offset:3px}
+#tahakkuk-gonder-view .cr{margin:0 0 7px}
+#tahakkuk-gonder-view .tg-period-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:0}
+#tahakkuk-gonder-view .tg-field{margin:0;display:grid;gap:6px}
+#tahakkuk-gonder-view .tg-field>label{font-size:12px;color:var(--t2);font-weight:400}
+#tahakkuk-gonder-view .tg-month-button{width:100%;display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border:1px solid var(--b);border-radius:12px;background:var(--s2);cursor:pointer;font-weight:600;color:var(--t);font-size:13px}
+#tahakkuk-gonder-view .tg-month-button:after{content:"▾";color:var(--t2)}
+#tahakkuk-gonder-view .tg-month-picker{position:relative}
+#tahakkuk-gonder-view .tg-month-panel{display:none;position:absolute;top:calc(100% + 8px);left:0;z-index:30;width:260px;background:var(--s);border:1px solid var(--b);border-radius:16px;box-shadow:0 18px 48px rgba(0,0,0,.2);padding:12px}
+#tahakkuk-gonder-view #tg-month-picker .tg-month-panel{left:auto;right:0}
+#tahakkuk-gonder-view .tg-month-picker.open .tg-month-panel{display:block}
+#tahakkuk-gonder-view .tg-month-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+#tahakkuk-gonder-view .tg-month-grid .tg-check{border-radius:10px;text-align:center;padding:7px 0}
+#tahakkuk-gonder-view .tg-month-grid .tg-check:has(#tg-month-all){grid-column:1/-1}
+#tahakkuk-gonder-view .tg-custom-year-row{grid-column:1/-1;display:flex;align-items:center;gap:8px;margin-top:8px;padding-top:8px;border-top:1px dashed var(--b);color:var(--t2);font-size:12px}
+#tahakkuk-gonder-view .tg-custom-year-row input{width:100%;min-width:0;padding:7px 10px;background:var(--s2);border:1px solid var(--b);border-radius:10px;color:var(--t)}
+#tahakkuk-gonder-view .td-root{margin-top:18px;display:flex;gap:12px;align-items:center;padding:10px 16px;box-shadow:none}
+#tahakkuk-gonder-view .td-root label{font-size:12px;color:var(--t2);white-space:nowrap}
+#tahakkuk-gonder-view .td-root input{max-width:600px;font-family:ui-monospace,Consolas,monospace;font-size:11px;padding:7px 10px}
+#tahakkuk-gonder-view .action-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}
+#tahakkuk-gonder-view .action-grid .btn{padding:10px 5px;min-height:40px;font-size:11px}
+#tahakkuk-gonder-view .action-grid .special-button{grid-column:span 2}
+#tahakkuk-gonder-view .sum{font-size:12px;font-weight:600;margin:14px 0 10px;color:var(--t);line-height:1.7}
+#tahakkuk-gonder-view .sum span{display:block;font-weight:400;color:var(--t2)}
+#tahakkuk-gonder-view .log{max-height:150px;min-height:0;border:0;background:none;padding:0}
+#tahakkuk-gonder-view .log div{overflow-wrap:anywhere}
+#tahakkuk-gonder-view .special-panel{display:none}
+#tahakkuk-gonder-view .special-panel.open{display:block}
+#tahakkuk-gonder-view .special-panel .list{max-height:230px;min-height:0}
+#tahakkuk-gonder-view .rec{grid-template-columns:18px minmax(0,1fr);padding:9px 6px;border-bottom:1px solid var(--b);border-radius:0;gap:8px}
+#tahakkuk-gonder-view .rec.sel{border:1px solid var(--g);border-radius:10px}
+#tahakkuk-gonder-view .special-panel .tb{margin-bottom:10px}
+#tahakkuk-gonder-view .special-panel .btn{padding:8px 10px}
+#tahakkuk-gonder-view .schedule-empty{padding:0;margin:0;color:var(--t2);font-size:12px}
+#tahakkuk-gonder-view .schedule-card.empty{padding-top:14px;padding-bottom:14px}
+#tahakkuk-gonder-view .schedule-card.empty h3{margin-bottom:6px}
+#tahakkuk-gonder-view .tg-schedule-list{display:block;max-height:290px;overflow:auto}
+#tahakkuk-gonder-view .tg-schedule-item{border:1px solid var(--b);border-radius:14px;background:var(--s2);padding:12px;margin:0 0 8px;box-shadow:none}
+#tahakkuk-gonder-view .tg-schedule-item:last-child{margin-bottom:0}
+#tahakkuk-gonder-view .tg-schedule-head{display:flex;justify-content:space-between;align-items:center;gap:8px;color:var(--t);font-size:12px}
+#tahakkuk-gonder-view .tg-schedule-status{font-size:10px;padding:3px 8px;border-radius:99px;background:var(--bls);color:var(--bl)}
+#tahakkuk-gonder-view .tg-schedule-meta,#tahakkuk-gonder-view .tg-schedule-files{font-size:11px;color:var(--t2);overflow-wrap:anywhere;margin-top:5px}
+#tahakkuk-gonder-view .tg-schedule-actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+#tahakkuk-gonder-view .tg-schedule-actions button{border:1px solid var(--b);background:var(--s);padding:5px 8px;border-radius:8px;color:var(--t);font-size:11px;cursor:pointer}
+#tahakkuk-gonder-view .tg-schedule-actions button.danger{color:var(--rd)}
+#tahakkuk-gonder-view .schedule-history{font-size:11px;color:var(--t2);margin-top:8px}
+#tahakkuk-gonder-view .schedule-history summary{cursor:pointer}
+#tahakkuk-gonder-view .pill.offline{background:var(--ams);color:var(--am)}
+#tahakkuk-gonder-view .pill.offline i{background:var(--am);box-shadow:none}
+#tahakkuk-gonder-view .empty-list{padding:20px 8px;color:var(--t2);font-size:13px}
+#tahakkuk-gonder-view .td-hint{font-size:11px;color:var(--t2);margin:8px 0 0}
+body.dark #tahakkuk-gonder-view .tg-check:has(input:checked){color:#04231a}
+@media(max-width:1300px){#tahakkuk-gonder-view .grid{grid-template-columns:280px minmax(0,1fr) 290px;gap:14px}#tahakkuk-gonder-view .card{padding:14px}#tahakkuk-gonder-view .right{grid-column:auto}#tahakkuk-gonder-view .item{grid-template-columns:18px minmax(0,1fr)}#tahakkuk-gonder-view .item .fl{grid-column:2;font-size:10px;max-width:100%;margin-top:-5px}#tahakkuk-gonder-view .nm{white-space:normal}}
+@media(max-width:1050px){#tahakkuk-gonder-view .grid{grid-template-columns:260px minmax(0,1fr)}#tahakkuk-gonder-view .right{grid-column:2}#tahakkuk-gonder-view .filters{grid-row:span 2}#tahakkuk-gonder-view .list{max-height:420px}}
+@media(max-width:700px){#package-modal .package-modal.tg-fullscreen{inset:0;border-radius:0}#tahakkuk-gonder-view .app{padding:16px 12px}#tahakkuk-gonder-view .grid{grid-template-columns:1fr}#tahakkuk-gonder-view .right{grid-column:1}#tahakkuk-gonder-view .filters{grid-row:auto}#tahakkuk-gonder-view .td-root{flex-wrap:wrap}#tahakkuk-gonder-view header{gap:8px}#tahakkuk-gonder-view header .sp{display:none}#tahakkuk-gonder-view .pn{width:240px}#tahakkuk-gonder-view .item .fl{display:block}#tahakkuk-gonder-view .list{max-height:420px}#tahakkuk-gonder-view h1{font-size:18px}}
+#tahakkuk-gonder-view .search .clearable-wrap{position:relative;display:block;left:auto;top:auto;opacity:1;width:100%}
+#tahakkuk-gonder-view .search{flex:1 1 200px}
+#tahakkuk-gonder-view ::-webkit-scrollbar-thumb{background-color:var(--b)}
+#tahakkuk-gonder-view .search>span:not(.clearable-wrap){z-index:1;pointer-events:none}
+.modal.tg-editor-modal{border-radius:18px;background:#fff;color:#0f1f1b;border:1px solid #e2eae7;box-shadow:0 8px 24px #0f1f1b18}
+.modal.tg-editor-modal input{border-radius:12px;background:#f6f9f8;border:1px solid #e2eae7;color:#0f1f1b;padding:10px 12px}
+.modal.tg-editor-modal .btn-ok{background:linear-gradient(135deg,#14b377,#0a7a58);border:0;border-radius:12px;color:white}
+.modal.tg-editor-modal .btn-cancel{border-radius:12px;border:1px solid #e2eae7;background:#fff;color:#0f1f1b}
+body.dark .modal.tg-editor-modal{background:#0d1614;color:#eaf4f0;border-color:#1f302b}
+body.dark .modal.tg-editor-modal input,body.dark .modal.tg-editor-modal .btn-cancel{background:#121e1b;color:#eaf4f0;border-color:#1f302b}
+#tahakkuk-gonder-view .item,#tahakkuk-gonder-view .rec{flex-shrink:0}

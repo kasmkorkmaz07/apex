@@ -1,6 +1,12 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('apexDesktop', {
+  phonePause: value => ipcRenderer.invoke('apex:phone-pause',value),
+  phoneCode: p => ipcRenderer.invoke('apex:phone-code',p),
+  phoneStatus: () => ipcRenderer.invoke('apex:phone-status'),
+  phoneDevices: cursor => ipcRenderer.invoke('apex:phone-devices',cursor),
+  phoneRevoke: id => ipcRenderer.invoke('apex:phone-revoke',id),
+  syncTahakkukCloud: () => ipcRenderer.invoke('apex:phone-sync'),
   receiptLayout: (payload) => ipcRenderer.invoke('apex:receipt-layout', payload),
   exportStockPdf: (payload) => ipcRenderer.invoke('apex:stock-pdf', payload),
   getPaths: () => ipcRenderer.invoke('apex:get-paths'),
@@ -8,6 +14,7 @@ contextBridge.exposeInMainWorld('apexDesktop', {
   writeJson: (key, value) => ipcRenderer.invoke('apex:write-json', key, value),
   protectSecret: (value) => ipcRenderer.invoke('apex:protect-secret', value),
   unprotectSecret: (value) => ipcRenderer.invoke('apex:unprotect-secret', value),
+  restoreDeclarations: (input, live) => ipcRenderer.invoke('apex:restore-declarations', input, live),
   createBackup: (reason, payload = null) => ipcRenderer.invoke('apex:create-backup', reason, payload),
   saveInvoicePdf: (payload) => ipcRenderer.invoke('apex:save-invoice-pdf', payload),
   readInvoicePdf: (id) => ipcRenderer.invoke('apex:read-invoice-pdf', id),
@@ -37,6 +44,7 @@ contextBridge.exposeInMainWorld('apexDesktop', {
   downloadGibDocs: (request) => ipcRenderer.invoke('apex:gib-download-docs', request),
   searchEbeyanApi: (request) => ipcRenderer.invoke('apex:ebeyan-api-search', request),
   openTahakkukGonder: () => ipcRenderer.invoke('apex:open-tahakkuk-gonder'),
+  checkTahakkukConnection: (rootPath) => ipcRenderer.invoke('apex:tahakkuk-connection', rootPath),
   loadTahakkukGonder: () => ipcRenderer.invoke('apex:tahakkuk-load'),
   saveTahakkukGonder: (payload) => ipcRenderer.invoke('apex:tahakkuk-save', payload),
   scanTahakkukGonder: (request) => ipcRenderer.invoke('apex:tahakkuk-scan', request),
