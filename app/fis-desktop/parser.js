@@ -1,3 +1,4 @@
+import {invoiceType,isReturn,isWithholding,specialFields} from './special.js';
 // Amounts arrive from both OCR (spaces/repeated separators) and structured QR fields.
 export function money(value){
  if(typeof value==='number')return Number.isFinite(value)?value:NaN;
@@ -13,24 +14,36 @@ export function mergeQr(d,q){
  // Missing QR fields must never erase a valid OCR value; party identity stays role-specific.
  const result={...d};for(const key of ['vkn','aciklama','evrak_no','evrak_tarihi','toplam'])if(q[key]!==''&&q[key]!=null)result[key]=q[key];
  if(q.kalemler?.length)result.kalemler=q.kalemler;
- for(const key of ['is_invoice','is_z_report','qr_raw','qr_currency','qr_warnings'])if(q[key]!=null)result[key]=q[key];
+ for(const key of ['is_invoice','is_z_report','qr_raw','qr_currency','qr_warnings','invoice_scenario','invoice_type','withholding','seller_vkn','buyer_vkn'])if(q[key]!=null&&q[key]!=='')result[key]=q[key];
  return result;
 }
 export function parseDraft(text='',kind='gider',qrs=[],profile='google'){
  const norm=s=>s.toLocaleUpperCase('tr-TR').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/İ/g,'I');
+ text=text.replace(/ALICI\s+B[Iİ]LG[Iİ]LER[Iİ]/gi,'SAYIN').replace(/Vergi\s*Numaras[ıi]\s*:?/gi,'VKN:');
  text=text.replace(/％/g,'%').replace(/%\s*[.]\s*(0?[018]|10|18|20)\b/g,'%$1');
  const lines=text.split(/\r?\n/).map(s=>s.trim()).filter(Boolean),u=norm(text);
  const isZ=/\bZ\s+(GUNLUK\s+)?RAPOR|Z\s*SAYAC/.test(u),invoice=/FATURA|E-ARSIV/.test(u)&&!isZ;
+ const meta=specialFields(text,money);const buyer=kind==='gelir';
  let block=lines.slice(0,18);const sayin=lines.findIndex(l=>/^SAYIN\b/.test(norm(l)));
- if(invoice&&kind==='gelir'){block=sayin>=0?lines.slice(sayin,sayin+16):[];}
+ if(invoice&&buyer){block=sayin>=0?lines.slice(sayin):[];}
  else if(sayin>=0)block=lines.slice(0,sayin);
+ let seller_vkn=pickVkn((sayin>=0?lines.slice(0,sayin):[]).join('\n')),buyer_vkn=pickVkn((sayin>=0?lines.slice(sayin):[]).join('\n'));
+ if(sayin<0){
+  const customer=u.match(/MUSTERI\s+ADI\s+SOYADI[^\n]*\n(?:[^\n]*\n){0,2}[^\n]*?VKN[^\n]{0,45}?\b(\d{10,11})\b/);
+  if(customer){
+   buyer_vkn=customer[1];
+   const others=[...u.matchAll(/V\.?D\.?\s*[:.]?\s*(\d(?:[ \t]*\d){9,10})\b/g)].map(m=>m[1].replace(/\s/g,''));
+   const unique=[...new Set(others.filter(v=>v!==buyer_vkn))];
+   if(unique.length===1)seller_vkn=unique[0];
+  }
+ }
  const party=block.join('\n');
  const vknFound=pickVkn(party);
- const title=pickTitle(block,invoice&&kind==='gelir'&&sayin>=0,vknFound);
+ const title=(invoice?invoicePartyTitle(block,buyer):'')||pickTitle(block,invoice&&buyer&&sayin>=0,vknFound);
  const dm=findDate(lines);
  const nm=isZ?u.match(/Z\s*(?:NO|SAYAC)[ \t]*[:.]?[ \t]*(\d[\d. ]*)/):u.match(/(?:FATURA|BELGE|FIS)\s*(?:NO|NUMARASI)\s*[:.#]?\s*([A-Z0-9-]*\d[A-Z0-9-]*)/);
  let docNo=nm?nm[1].replace(/[. ]/g,''):'';
- if(invoice){const invoiceNo=lines.filter(l=>!/(?:SAP|SIPARIS|IRSALIYE)/.test(norm(l))).map(l=>norm(l).match(/FATURA\s*(?:NO|NUMARASI)\s*[:.]?\s*([A-Z0-9]{3}20\d{2}\d{9})\b/)).find(Boolean);if(invoiceNo)docNo=invoiceNo[1];}
+ if(invoice){const invoiceNo=lines.filter(l=>!/(?:SAP|SIPARIS|IRSALIYE)/.test(norm(l))).map(l=>norm(l).match(/FATURA\s*(?:SIRA\s*)?(?:NO|NUMARASI)\s*[:.]?\s*([A-Z0-9]{3}20\d{2}\d{9})\b/)).find(Boolean);if(invoiceNo)docNo=invoiceNo[1];}
  {const lead=docNo.match(/^(\d{1,12})[A-Z]{2,}$/);if(lead)docNo=lead[1];}
  if(/^\d+$/.test(docNo))docNo=docNo.replace(/^0+(?=\d)/,'');
  const amount=money;
@@ -66,12 +79,12 @@ export function parseDraft(text='',kind='gider',qrs=[],profile='google'){
 
  for(const line of lines){const normalized=norm(line);const m=/KDV\s*%\s*(\d{1,2})(?:[.,]00)?\s*\(?(?:MATRAH)\s*[:.]?\s*([\d.,]+)/.exec(normalized);if(m&&[0,1,8,10,18,20].includes(+m[1])){const base=amount(m[2]);if(Number.isFinite(base))ocrVat.push({oran:Number(m[1]).toFixed(2),matrah:base.toFixed(2),kdv:(Math.round(base*Number(m[1]))/100).toFixed(2)});}}
  // Tax summaries: calculated VAT, taxable base, and per-rate gross totals.
- for(let i=0;!isZ&&i<lines.length;i++){const n=norm(lines[i]),rm=/%\s*0?(\d{1,2})(?:[.,]00)?\b/.exec(n);if(!rm||!rates.includes(+rm[1]))continue;
+ for(let i=0;!isZ&&i<lines.length;i++){const n=norm(lines[i]).replace(/^.*?(?=HESAPLANAN\s*KDV)/,'');if(/TEVKIF/.test(n))continue;const rm=/%\s*0?(\d{1,2})(?:[.,]00)?\b/.exec(n);if(!rm||!rates.includes(+rm[1]))continue;
   const rest=n.slice(rm.index+rm[0].length);let nums=amounts(rest);
   if(!nums.length&&lines[i+1]&&/^[*×+\d\s.,]+(?:TL|TRY)?$/.test(lines[i+1]))nums=amounts(lines[i+1]);
   if(!nums.length)continue;const rate=+rm[1];let row;
   if(/MATRAH/.test(n)){const base=nums[0];row={oran:rate.toFixed(2),matrah:base.toFixed(2),kdv:(Math.round(base*rate)/100).toFixed(2)};}
-  else if(/HESAPLANAN|TOPKDV|KDV/.test(n)&&! /DAHIL/.test(n)&&rate>0){const tax=nums.at(-1);row={oran:rate.toFixed(2),matrah:(Math.round(tax*10000/rate)/100).toFixed(2),kdv:tax.toFixed(2)};}
+  else if(/^(?:HESAPLANAN\s*KDV|TOPKDV|TOPLAM\s*KDV|KDV\s*[(%:])/.test(n)&&! /DAHIL/.test(n)&&rate>0){const tax=nums.at(-1);row={oran:rate.toFixed(2),matrah:(Math.round(tax*10000/rate)/100).toFixed(2),kdv:tax.toFixed(2)};}
   else if(/TOPLAM/.test(n))row=vatLine(rate,nums.at(-1));
   if(row&&!ocrVat.some(l=>l.oran===row.oran))ocrVat.push(row);
  }
@@ -110,25 +123,36 @@ export function parseDraft(text='',kind='gider',qrs=[],profile='google'){
  }
  if(summaryRows.length&&total&&Math.abs(summaryRows.reduce((n,l)=>n+Number(l.matrah)+Number(l.kdv),0)-Number(total))<=.02&&
   (printedTax==null||Math.abs(summaryRows.reduce((n,l)=>n+Number(l.kdv),0)-printedTax)<=.03))ocrVat.splice(0,ocrVat.length,...summaryRows);
- const uniqueVat=[...new Map(ocrVat.map(l=>[l.oran,l])).values()];
+ const uniqueVat=[...new Map(ocrVat.filter(l=>!total||(Number(l.matrah)>=0&&Number(l.kdv)>=0&&Number(l.matrah)+Number(l.kdv)<=Number(total)+0.05)).map(l=>[l.oran,l])).values()];
+ if(uniqueVat.length===1&&total){const row=uniqueVat[0],tax=Number(row.kdv),base=Number(total)-tax,rate=Number(row.oran);if(Math.abs(base*rate/100-tax)<=0.02)row.matrah=base.toFixed(2);}
  if(!total&&uniqueVat.length)total=uniqueVat.reduce((sum,l)=>sum+Number(l.matrah)+Number(l.kdv),0).toFixed(2);
- const d={kind,is_invoice:invoice,is_z_report:isZ,aciklama:isZ?'Z RAPORU':title,vkn:isZ?'':vknFound,evrak_no:docNo,evrak_tarihi:dm||'',toplam:total,kalemler:[],ocr:text,review_ack:false};
+ const d={kind,return_direction_version:2,seller_vkn,buyer_vkn,invoice_type:meta.invoice_type||'SATIS',invoice_scenario:(u.match(/\bSENARYO\s*:?\s*([A-Z]+)/)||[])[1]||'',is_invoice:invoice,is_z_report:isZ,aciklama:isZ?'Z RAPORU':title,vkn:isZ?'':vknFound,evrak_no:docNo,evrak_tarihi:dm||'',toplam:total,kalemler:[],ocr:text,review_ack:false};
  if(uniqueVat.length)d.kalemler=uniqueVat;else if(total&&rates.length===1&&(printedTax==null||Math.abs(Number(vatLine(rates[0],total).kdv)-printedTax)<=0.03))d.kalemler=[vatLine(rates[0],total)];
  if(uniqueVat.length)d.ocr_warnings=['KDV matrahı metinden okundu; hesaplanan toplamı belgeyle kontrol edin.'];
+ const textEvidence={toplam:d.toplam,kalemler:structuredClone(d.kalemler),evrak_no:d.evrak_no};
  for(const qr of qrs){const m=qr.match(/^(\d{10})\s+(\d{2})-(\d{2})-(\d{4})\s+(\d{3,6})\s/);if(m&&!isZ&&!(invoice&&kind==='gelir')){d.vkn=m[1];d.evrak_tarihi=`${m[2]}.${m[3]}.${m[4]}`;d.evrak_no=m[5].replace(/^0+(?=\d)/,'');break;}}
- for(const {raw,q} of (isZ?[]:qrs).map(raw=>({raw,q:parseQr(raw,kind,profile)})).filter(x=>x.q).sort((a,b)=>((!!b.q.vkn)+ (!!b.q.evrak_no)+(!!b.q.toplam)+b.q.kalemler.length)-((!!a.q.vkn)+(!!a.q.evrak_no)+(!!a.q.toplam)+a.q.kalemler.length))){if(q){
+ for(const {raw,q} of (isZ?[]:qrs).map(raw=>({raw,q:parseQr(raw,kind,profile,meta.invoice_type)})).filter(x=>x.q).sort((a,b)=>((!!b.q.vkn)+ (!!b.q.evrak_no)+(!!b.q.toplam)+b.q.kalemler.length)-((!!a.q.vkn)+(!!a.q.evrak_no)+(!!a.q.toplam)+a.q.kalemler.length))){if(q){
+  if(meta.invoice_type&&q.invoice_type&&meta.invoice_type!==q.invoice_type)d.invoice_type_conflict=true;
   Object.assign(d,mergeQr(d,q));
   for(const key of ['evrak_no','evrak_tarihi','toplam'])if(q[key]!==''&&q[key]!=null)d[key]=q[key];
   if(q.aciklama)d.aciklama=q.aciklama;
   if(q.kalemler.length)d.kalemler=q.kalemler;
-  Object.assign(d,{is_invoice:q.is_invoice,qr_raw:raw,qr_currency:q.qr_currency,qr_warnings:q.qr_warnings});break;
+  Object.assign(d,{is_invoice:q.is_invoice,invoice_scenario:q.invoice_scenario||d.invoice_scenario,qr_raw:raw,qr_currency:q.qr_currency,qr_warnings:q.qr_warnings});break;
  }}
+ if(isWithholding(d)){const w={...meta.withholding,...(d.withholding||{})};d.withholding=w;if(meta.gross)d.toplam=meta.gross;if(d.kalemler.length===1&&meta.gross){d.kalemler[0].matrah=(money(meta.gross)-money(d.kalemler[0].kdv)).toFixed(2);}}
+ if(d.qr_raw&&!isWithholding(d)&&!vatBalanced(d)&&vatBalanced(textEvidence)&&textEvidence.evrak_no===d.evrak_no&&Math.abs(Number(textEvidence.toplam)-Number(d.toplam))<.005){
+  const qrTaxes=new Map(d.kalemler.map(l=>[Number(l.oran),Number(l.kdv)]));
+  if(textEvidence.kalemler.length===qrTaxes.size&&textEvidence.kalemler.every(l=>Math.abs(qrTaxes.get(Number(l.oran))-Number(l.kdv))<=.02)){
+   d.kalemler=textEvidence.kalemler;d.tax_evidence='Fatura metnindeki iskonto sonrası matrah ve KDV, toplamla doğrulandı.';
+   d.qr_warnings=(d.qr_warnings||[]).filter(w=>!w.startsWith('Ödenecek tutar ile KDV dağılımı farklı'));
+  }
+ }
  d.aciklama=normalizeTitle(d.aciklama);d.tarih=d.evrak_tarihi;d.mobile_ocr=true;return excludeAutomaticZero(d);
 }
 export function vatLine(rate,gross){const n=money(gross),r=Number(rate),base=Math.round(n/(1+r/100)*100)/100;return {oran:r.toFixed(2),matrah:base.toFixed(2),kdv:(Math.round((n-base)*100)/100).toFixed(2)};}
 
 // GIB e-Fatura/e-Arsiv payload; supplier and customer identifiers are distinct.
-export function parseQr(raw,kind='gider',profile='google'){
+export function parseQr(raw,kind='gider',profile='google',typeHint=''){
  let obj;let source=String(raw).replace(/^\uFEFF/,'').trim();
  try{if(/^https?:/.test(source)){const url=new URL(source);const value=[...url.searchParams.values()].find(v=>v.trim().startsWith('{'));if(value)source=value;}if(source.startsWith('%7B')||source.startsWith('%7b'))source=decodeURIComponent(source);obj=JSON.parse(source);if(typeof obj==='string')obj=JSON.parse(obj);}catch{
   const start=source.indexOf('{'),end=source.lastIndexOf('}');if(start<0||end<start){source='{'+source+'}';}
@@ -143,11 +167,12 @@ export function parseQr(raw,kind='gider',profile='google'){
  for(const [key,names] of Object.entries(aliases))if(p[key]==null){const name=names.find(n=>p[n]!=null);if(name)p[key]=p[name];}
  
  if(!p.no&&!p.vkntckn&&!p.avkntckn)return null;
- const str=v=>v==null?'':String(v).trim();
- const num=v=>{const n=money(v);return Number.isFinite(n)&&n>=0?n:null;};
+ const str=v=>v==null?'':String(v).trim();const normQr=s=>str(s).toLocaleUpperCase('tr-TR').replace(/İ/g,'I');
+ const num=v=>{const raw=String(v??'').trim();const n=/^\d+(?:\.\d+)?$/.test(raw)?Number(raw):money(v);return Number.isFinite(n)&&n>=0?Math.round((n+Number.EPSILON)*100)/100:null;};
  const date=str(p.tarih);const m=/^(\d{4})-(\d{2})-(\d{2})(?:T.*)?$/.exec(date);
- const vkn=str(kind==='gelir'?p.avkntckn:p.vkntckn);
- const title=str(kind==='gelir'?(p.aliciunvan||p.aunvan):(p.saticiunvan||p.unvan))||(profile==='penti'&&kind!=='gelir'&&str(p.vkntckn)==='7280059048'?'PENTİ':'');
+ const invoice_type=normQr(p.tip||p.faturatipi||typeHint||'SATIS'),buyer=kind==='gelir';
+ const vkn=str(buyer?p.avkntckn:p.vkntckn);
+ const title=str(buyer?(p.aliciunvan||p.aunvan):(p.saticiunvan||p.unvan))||(profile==='penti'&&kind!=='gelir'&&str(p.vkntckn)==='7280059048'?'PENTİ':'');
  let total=num(p.odenecek??p.vergidahil);const rates=new Map(),warnings=[];
  for(const [key,value] of entries){const match=/^(kdvmatrah|hesaplanankdv)\(?%?(\d+(?:[.,]\d+)?)\)?$/.exec(key);if(!match)continue;
   const rate=Number(match[2].replace(',','.'));if(![0,1,8,10,18,20].includes(rate)){warnings.push('Desteklenmeyen KDV oranı: '+rate);continue;}
@@ -166,11 +191,12 @@ export function parseQr(raw,kind='gider',profile='google'){
  if(total==null)warnings.push('Kodda ödenecek tutar bulunamadı.');
  if(total!=null&&lines.length&&Math.abs(lines.reduce((s,l)=>s+Number(l.matrah)+Number(l.kdv),0)-total)>0.02)warnings.push('Ödenecek tutar ile KDV dağılımı farklı; tevkifat/diğer vergileri kontrol edin.');
  const currency=str(p.parabirimi).toUpperCase()||'TRY';if(!['TRY','TRL','TL'].includes(currency))warnings.push('Dövizli belge: '+currency+'. TL tutarları ayrıca doğrulanmalı.');
- return {kind,is_invoice:true,is_z_report:false,aciklama:title,vkn,evrak_no:str(p.no),evrak_tarihi:m?`${m[3]}.${m[2]}.${m[1]}`:date,tarih:m?`${m[3]}.${m[2]}.${m[1]}`:date,toplam:total==null?'':total.toFixed(2),kalemler:lines,ocr:'',qr_raw:String(raw),qr_profile:profile,qr_currency:currency,qr_warnings:warnings,review_ack:false};
+ const withholding=isWithholding({invoice_type})?{payable:num(p.odenecek)?.toFixed(2)||''}:undefined;if(withholding&&num(p.vergidahil)!=null)total=num(p.vergidahil);
+ return {kind,return_direction_version:2,seller_vkn:str(p.vkntckn),buyer_vkn:str(p.avkntckn),invoice_type,...(withholding?{withholding}:{}),invoice_scenario:str(p.senaryo).toLocaleUpperCase('tr-TR').replace(/İ/g,'I'),is_invoice:true,is_z_report:false,aciklama:title,vkn,evrak_no:str(p.no),evrak_tarihi:m?`${m[3]}.${m[2]}.${m[1]}`:date,tarih:m?`${m[3]}.${m[2]}.${m[1]}`:date,toplam:total==null?'':total.toFixed(2),kalemler:lines,ocr:'',qr_raw:String(raw),qr_profile:profile,qr_currency:currency,qr_warnings:warnings,review_ack:false};
 }
 
 export function matchVendor(d,vendors=[]){
- if(d.is_z_report)return d;
+ if(d.is_z_report)return d;d.aciklama=cleanPartyTitle(d.aciklama);
  const norm=s=>NORM(s).replace(/[^A-Z0-9]/g,'');
  const lev=(a,b)=>{const m=[...Array(b.length+1).keys()];for(let i=1;i<=a.length;i++){let p=m[0];m[0]=i;for(let j=1;j<=b.length;j++){const t=m[j];m[j]=Math.min(m[j]+1,m[j-1]+1,p+(a[i-1]===b[j-1]?0:1));p=t;}}return m[b.length];};
  const digits=v=>String(v??'').replace(/\D/g,'');d.vkn=digits(d.vkn);let found=d.vkn?vendors.find(v=>digits(v.vkn)===d.vkn&&String(v.name||'').trim()):null,note='Cari: VKN eşleşmesi';
@@ -178,7 +204,7 @@ export function matchVendor(d,vendors=[]){
   const near=vendors.filter(v=>String(v.vkn).length===d.vkn.length&&[...String(v.vkn)].filter((c,i)=>c!==d.vkn[i]).length<=1);
   if(near.length===1&&norm(d.aciklama||'').length>=8&&norm(d.aciklama)===norm(near[0].name)){found=near[0];note='Cari: VKN OCR hatası cariden düzeltildi';}
  }
- if(!found&&(!d.vkn||!isValidVkn(d.vkn))&&d.kind!=='gelir'){
+ if(!found&&!d.is_invoice&&(!d.vkn||!isValidVkn(d.vkn))&&d.kind!=='gelir'){
   const raw=d.ocr||'',names=norm(raw);
   const c=vendors.filter(v=>{const name=norm(v.name);return (name.length>=15&&names.includes(name))||raw.split(/\r?\n/).some(l=>/MERSIS/.test(NORM(l))&&l.replace(/\D/g,'').startsWith('0'+v.vkn)&&l.replace(/\D/g,'').length===16);});
   if(c.length===1){found=c[0];note='Cari: ünvan eşleşmesi';}
@@ -187,7 +213,7 @@ export function matchVendor(d,vendors=[]){
    if(f.length===1){found=f[0];note='Cari: ünvan benzerliği';}
   }
  }
- if(found){d.vkn=digits(found.vkn);d.aciklama=found.name;d.vendor_source=note;}
+ if(found){d.vkn=digits(found.vkn);d.aciklama=cleanPartyTitle(found.name);d.vendor_source=note;}
  return d;
 }
 
@@ -211,12 +237,32 @@ const MEDIUM=/\b(?:TICARET|TIC|SANAYI|SAN|PAZARLAMA|MARKET|GIDA|INSAAT|TURIZM|EC
 const CONT=/^(?:VE\s|TIC|SAN|LTD|STI|LIMITED|ANONIM|A\.?\s?S\b|SIRKET|PAZ|INS|TUR|GIDA|OTO|TEKS|DIS\s|IC\s)/;
 const PRICE_RE=/(?<![\d.,])\d+(?:[.,]\d{3})*[.,]\d{2}(?!\d)/,DATE_RE=/(?<!\d)\d{1,2}\s*[.\/-]\s*\d{1,2}\s*[.\/-]\s*(?:20)?\d{2}(?!\d)/;
 export const looksLikeProduct=t=>{const n=NORM(t);return /\d+\s*[X*]\s*\d/.test(n)||/\b\d+\s*(?:ADET|AD|KG|GR|LT|ML)\b/.test(n)||PRICE_RE.test(n)||/%\s*\d/.test(n)||/^\d/.test(n);};
+export function invoicePartyTitle(lines,buyer=false){
+ const names=[];let started=!buyer;
+ for(let raw of lines){
+  let line=cleanPartyTitle(String(raw).trim());
+  if(/^SAYIN\b/.test(NORM(line))){started=true;line=line.replace(/^SAYIN\s*[:.]?\s*/i,'');}
+  if(!started)continue;
+  line=cleanPartyTitle(line);
+  line=line.split(/(?:Özelleştirme\s*No|Senaryo|Fatura\s*(?:Tipi|No|Tarihi)|Düzenleme\s*(?:Tarihi|Saati))\s*:/i)[0].trim();
+  line=line.split(/(?:Vergi\s*(?:No|Numarası|Dairesi)|VKN|TCKN|Mersis\s*No)\s*:/i)[0].trim();
+  const n=NORM(line);if(!n)continue;
+  if(/^(?:IRSALIYE YERINE(?: DE)?(?: GECER)?|GECER|FATURA DETAYI|E[- ]?FATURA|E[- ]?ARSIV(?: FATURA)?)$/.test(n))continue;
+  if(/^(?:FATURA DETAYI|IRSALIYE REF|GONDERI CIKIS|GONDERICI ADI|ALICI ADI)/.test(n))break;
+  if(/^(?:E[- ]?(?:FATURA|ARSIV)|LOGO|SAYIN)\s*$/.test(n))continue;
+  if(/^(?:ETTN|VKN|TCKN|VERGI|TEL|FAKS|FAX|WEB|E[- ]?POSTA|MERSIS|TICARET\s*SICIL|SENARYO|OZELLESTIRME|FATURA\s*(?:NO|TARIHI|TIPI)|TURKIYE|KAPI\s*NO)\b/.test(n)||/\b(?:MAH(?:ALLESI)?|CAD(?:DESI)?|SOK(?:AK)?|BULVARI|BLV|SK)\b/.test(n)||/WWW\.|@|\bNO\s*:|\d{5}\s|^\d{2}[./-]\d{2}[./-]\d{4}/.test(n)){if(names.length)break;continue;}
+  if(!/[A-Z]{2}/.test(n))continue;
+  names.push(line.replace(/\s+/g,' '));
+  if(/(?:\bA\s*\.\s*S\s*\.|\bLTD\.?\s*STI\.?|\bLIMITED SIRKETI|\bANONIM SIRKETI)\s*$/.test(n))break;
+ }
+ return names.join(' ');
+}
 function pickTitle(lines,afterSayin,vkn=''){
  let stop=lines.findIndex((l,i)=>i>0&&(PRICE_RE.test(l)||DATE_RE.test(l)||/^(?:TARIH|SAAT|FIS\s*NO|KASIYER|URUN|MIKTAR|ADET|TOPLAM|KDV|SIRA)\b/.test(NORM(l))));
  if(stop<0||stop>14)stop=Math.min(lines.length,14);
  let best=null;
  lines.forEach((raw,i)=>{
-  let t=raw.trim(),sayin=false;
+  let t=cleanPartyTitle(raw.trim()),sayin=false;
   if(/^SAYIN\b/.test(NORM(t))){t=t.replace(/^SAYIN\s*[:.]?\s*/i,'');sayin=true;if(!t)return;}
   const n=NORM(t);
   if(t.length<3||t.length>160||!/[A-Z]{3}/.test(n)||NOT_TITLE.test(n)||looksLikeProduct(t))return;
@@ -248,7 +294,7 @@ function findDate(lines){
   for(const m of line.matchAll(/(?<!\d)(\d{1,2})\s*[.\/-]\s*(\d{1,2})(?:\s*[.\/-]\s*(\d{4}|\d{2})|(20\d{2}))(?!\d)/g)){
    const d=+m[1],mo=+m[2];let y=+(m[3]||m[4]);if(y<100)y+=2000;
    if(!validDate(d,mo,y))continue;
-   const prio=/VADE|SON ODEME|IRSALIYE|SIPARIS/.test(n)?-5:/TARIH/.test(n)?3:0;
+   const prio=/VADE|SON ODEME|IRSALIYE|SIPARIS/.test(n)?-5:/FATURA\s*TARIH/.test(n)?5:/TARIH/.test(n)?3:0;
    if(!best||prio>best.prio)best={prio,v:String(d).padStart(2,'0')+'.'+String(mo).padStart(2,'0')+'.'+y};
   }
  });
@@ -267,9 +313,10 @@ export function checkDoc({type,vkn,date,total,gross,title}){
  return w;
 }
 
-export function normalizeTitle(value){return String(value||'').replace(/\bT[Iİıi]C\./gi,'TİC.').replace(/\b[SŞsş]T[Iİıi]\./gi,'ŞTİ.').replace(/\bA\.?[SŞsş]\.(?=\s|$)/gi,'A.Ş.');}
+export function cleanPartyTitle(value){return String(value||'').replace(/^[\s"“”]*Ekonomik,?\s*hızlı\s+ve\s+yenilikçi\s+çözüm\s+ortağınız[\s"“”]*/iu,'').replace(/^[\s"“”]*yenilikçi\s+çözüm\s+ortağınız[\s"“”]*/iu,'').trim();}
+export function normalizeTitle(value){return cleanPartyTitle(value).replace(/\bT[Iİıi]C\./gi,'TİC.').replace(/\b[SŞsş]T[Iİıi]\./gi,'ŞTİ.').replace(/\bA\.?[SŞsş]\.(?=\s|$)/gi,'A.Ş.');}
 export function excludeAutomaticZero(d){
- if(d.kind==='gelir'||d.is_z_report||d.qr_raw||d.vat_manually_reviewed||d.manual_zero===true||d.zero_excluded)return d;
+ if(isReturn(d)||isWithholding(d)||d.kind==='gelir'||d.is_z_report||d.qr_raw||d.vat_manually_reviewed||d.manual_zero===true||d.zero_excluded)return d;
  const rows=d.kalemler||[],zero=rows.filter(l=>Number(l.oran)===0).reduce((s,l)=>s+Number(l.matrah)+Number(l.kdv),0);
  if(zero>0&&Number.isFinite(money(d.toplam))){d={...d,original_total:d.toplam,toplam:Math.max(0,money(d.toplam)-zero).toFixed(2),kalemler:rows.filter(l=>Number(l.oran)!==0),zero_excluded:zero.toFixed(2)};}
  return d;
@@ -278,7 +325,7 @@ export function excludeAutomaticZero(d){
 // Work in cents. Never invent a tax rate or redistribute mixed-rate invoices.
 export function reconcileVat(d){
  const total=money(d.toplam),rows=d.kalemler||[];
- if(!(total>0)||d.qr_raw||d.is_z_report||vatBalanced(d)||d.vat_manually_reviewed)return d;
+ if(isWithholding(d)||!(total>0)||d.qr_raw||d.is_z_report||vatBalanced(d)||d.vat_manually_reviewed)return d;
  let rates=[...new Set(rows.map(r=>Number(r.oran)).filter(r=>[0,1,8,10,18,20].includes(r)))];
  const printed=[...new Set([...String(d.ocr||'').matchAll(/%\s*(0|1|8|10|18|20)(?!\d)/g)].map(m=>Number(m[1])))];
  if(printed.length>1)return d;
@@ -291,6 +338,28 @@ export function vatBalanced(d){
  return Number.isFinite(t)&&t>0&&rows.length>0&&rows.every(r=>[0,1,8,10,18,20].includes(Number(r.oran))&&Number.isFinite(money(r.matrah))&&Number.isFinite(money(r.kdv)))&&Math.round(t*100)===rows.reduce((n,r)=>n+Math.round(money(r.matrah)*100)+Math.round(money(r.kdv)*100),0);
 }
 export function sameDocument(a,b){
- const clean=r=>{const d=r.data||{};return {client:r.client,kind:r.kind,state:r.state,deleted:!!r.deleted,aciklama:d.aciklama||'',vkn:d.vkn||'',no:d.evrak_no||'',date:d.evrak_tarihi||d.tarih||'',total:money(d.toplam),invoice:!!d.is_invoice,z:!!d.is_z_report,period:d.selected_period||r.period||'',rows:(d.kalemler||[]).map(l=>[Number(l.oran),money(l.matrah),money(l.kdv)]).sort((a,b)=>a[0]-b[0])};};
+ const clean=r=>{const d=r.data||{};return {client:r.client,kind:r.kind,state:r.state,deleted:!!r.deleted,aciklama:d.aciklama||'',vkn:d.vkn||'',no:d.evrak_no||'',date:d.evrak_tarihi||d.tarih||'',total:money(d.toplam),invoice:!!d.is_invoice,invoice_type:invoiceType(d),withholding:d.withholding||null,z:!!d.is_z_report,period:d.selected_period||r.period||'',rows:(d.kalemler||[]).map(l=>[Number(l.oran),money(l.matrah),money(l.kdv)]).sort((a,b)=>a[0]-b[0])};};
  return JSON.stringify(clean(a))===JSON.stringify(clean(b));
+}
+
+export function applyPartyBlocks(d,blocks=[],ownTax=''){
+ // Roles come from explicit recipient labels, never from left/right layout
+ // or the section chosen by the user. QR roles remain authoritative.
+ const ids=[...new Set(blocks.map(b=>b.vkn).filter(v=>/^\d{10,11}$/.test(v)))];
+ const buyers=[...new Set(blocks.filter(b=>b.role==='buyer').map(b=>b.vkn))];
+ if(!d.qr_raw&&ids.length===2&&buyers.length===1&&ids.includes(buyers[0])){
+  d={...d,buyer_vkn:buyers[0],seller_vkn:ids.find(id=>id!==buyers[0])};
+ }
+ const candidates=blocks.map(b=>({...b,title:invoicePartyTitle(String(b.text||'').split(/\r?\n/))})).filter(b=>b.title&&/^\d{10,11}$/.test(b.vkn));
+ const unique=[...new Map(candidates.map(b=>[b.vkn,b])).values()];
+ const own=String(ownTax||'').replace(/\D/g,'');
+ const qrId=d.qr_raw?String(d.vkn||''):'';
+ let chosen=qrId?unique.find(b=>b.vkn===qrId&&b.vkn!==own):null;
+ if(!chosen&&own&&unique.some(b=>b.vkn===own)){const others=unique.filter(b=>b.vkn!==own);if(others.length===1)chosen=others[0];}
+ if(!chosen)chosen=unique.find(b=>b.vkn===d.vkn&&b.vkn!==own);
+ if(!chosen)return {...d,party_blocks:blocks};
+ const out={...d,vkn:chosen.vkn,aciklama:chosen.title,party_blocks:blocks,party_title_source:'PDF vergi numarasıyla aynı firma bloğu'};
+ // Preserve QR roles. Without QR, the selected section is retained; this
+ // identifies the counterparty, not an automatic incoming/outgoing decision.
+ return out;
 }

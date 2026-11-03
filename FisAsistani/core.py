@@ -35,6 +35,16 @@ def date_value(s):
     except ValueError:
         raise ValueError('Tarih GG.AA.YYYY biçiminde olmalı.') from None
 
+def export_sort_key(record, date_field='tarih'):
+    """Sort entire documents, not their VAT rows; match the exported date."""
+    rid, d = record
+    try:
+        date = date_value(str(d.get(date_field) or ''))
+    except ValueError as error:
+        raise ValueError(f"Kayıt #{rid} / No: {d.get('evrak_no','')}: {error}") from error
+    return (date, str(d.get('evrak_no') or '').strip().upper(),
+            str(d.get('vkn') or '').strip())
+
 def normalized(s):
     s = s.upper().replace('$', 'S')
     s = re.sub(r'\b(\d{2})[ \t]*([./-])[ \t]*(\d{2})[ \t]*[./-][ \t]*(\d{4})\b', r'\1\2\3\2\4', s)
@@ -295,6 +305,8 @@ def draft(text='', kind=None, use_vendor_hints=True):
     return d
 
 def validate(d, *, check_person_name=True):
+    from special_invoice import validate_special
+    validate_special(d)
     if d.get('mixed_documents'):raise ValueError('Birden fazla Z raporu birleşmiş. Her raporu ayrı kırpıp yükleyin.')
     if d.get('kind','gider') not in ('gelir','gider'):
         raise ValueError('Gelir / gider türü geçersiz.')
@@ -365,6 +377,8 @@ def storage_identity(d):
 
 def vat_records(d):
     """Tek belgeden her pozitif KDV oranı için bağımsız kayıt üret."""
+    from special_invoice import is_special
+    if is_special(d):return [d]
     groups={}
     for row in d.get('kalemler',[]):
         rate=money(row['oran'])
@@ -444,6 +458,8 @@ class Store:
                     self.db.execute('INSERT OR IGNORE INTO vendors VALUES (?,?)',(d['vkn'],d['aciklama']))
                     self.learn_vendor(d)
             self.db.execute("INSERT OR IGNORE INTO app_migrations VALUES ('vendor_history_v1')")
+        from import_repairs import repair_qr_decimals
+        repair_qr_decimals(self.db)
 
     def delete_vendor(self,vkn):
         with self.db:
@@ -453,7 +469,10 @@ class Store:
 
     def learn_vendor(self,d):
         if d.get('kind')=='gelir' or d.get('custom_description') or not d.get('vkn'):return
-        aliases=receipt_header(d.get('ocr',''))+[d['aciklama']]
+        if self.db.execute('SELECT 1 FROM deleted_vendors WHERE vkn=?',(d['vkn'],)).fetchone():return
+        current=self.db.execute('SELECT name FROM vendors WHERE vkn=?',(d['vkn'],)).fetchone()
+        if current and current[0]!=d['aciklama']:return
+        aliases=[d['aciklama']] if d.get('is_invoice') else receipt_header(d.get('ocr',''))+[d['aciklama']]
         for name in aliases:
             key=re.sub(r'[^A-Z0-9]','',normalized(name))
             if len(key)>=5 and len(name.split())>=2 and key not in {'TESEKKUREDERIZ','AFIYETOLSUN','HOSGELDINIZ','MUSTERINUSHASI','BUBELGEYISAKLAYINIZ','KREDIKARTI','EARSIVFATURA','BILGIFISI'}:
@@ -515,6 +534,8 @@ class Store:
         if not re.fullmatch(r'\d{10,11}',vkn) or vkn=='11111111111':raise ValueError('Geçerli uzunlukta VKN/TCKN girin; 11111111111 kullanılamaz.')
         if not name.strip():raise ValueError('Ünvan boş olamaz.')
         with self.db:
+            self.db.execute('DELETE FROM deleted_vendors WHERE vkn=?',(vkn,))
+            self.db.execute('DELETE FROM vendor_aliases WHERE vkn IN (?,?)',(old_vkn,vkn))
             if old_vkn!=vkn:
                 self.db.execute('INSERT INTO vendors VALUES (?,?)',(vkn,name.strip()))
                 self.db.execute('DELETE FROM vendors WHERE vkn=?',(old_vkn,))
@@ -661,7 +682,7 @@ class Store:
             self.db.execute('UPDATE receipts SET data=?,approved=?,identity=?,period=? WHERE id=?',
                 (json.dumps(d,ensure_ascii=False),int(approve),key,period,rid))
             if approve and d.get('vkn') and d.get('kind')!='gelir' and not d.get('custom_description'):
-                self.db.execute('INSERT OR REPLACE INTO vendors VALUES (?,?)',(d['vkn'],d['aciklama']))
+                self.db.execute('INSERT OR IGNORE INTO vendors SELECT ?,? WHERE NOT EXISTS(SELECT 1 FROM deleted_vendors WHERE vkn=?)',(d['vkn'],d['aciklama'],d['vkn']))
                 self.learn_vendor(d)
             self._split_saved(rid,d,approve)
 
@@ -689,7 +710,7 @@ def export_xlsx(path, records, headers=True, allow_empty=False, kind='gider', wo
     ws.title = sheet_name
     if headers:
         ws.append(INCOME_HEADERS if kind=='gelir' else HEADERS)
-    for rid, d in records:
+    for rid, d in sorted(records, key=export_sort_key):
         validate_export(d,rid)
         for line in d['kalemler']:
             if money(line['oran'])==0 and kind!='gelir':
@@ -721,6 +742,8 @@ def export_xlsx(path, records, headers=True, allow_empty=False, kind='gider', wo
     return wb
 
 def export_monthly(path,records,settings=None):
+    from special_invoice import is_special
+    if any(is_special(d) for _,d in records):raise ValueError('İade/tevkifat aktarımı için Genel muhasebe hesap tanımları gereklidir; işletme şablonuna normal belge olarak yazılmadı.')
     wb = None
     specs = [('gider','Giderler',True),('gelir','Gelirler',True),
              ('gider','Gider_Aktarim',False),('gelir','Gelir_Aktarim',False)]

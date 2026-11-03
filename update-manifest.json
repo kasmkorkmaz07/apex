@@ -1,15 +1,16 @@
 {
   "name": "Apex",
-  "version": "1.0.135",
-  "latestVersion": "1.0.135",
+  "version": "1.0.150",
+  "latestVersion": "1.0.150",
   "updateManifestUrl": "https://api.github.com/repos/kasmkorkmaz07/apex/releases/latest",
   "downloadUrl": "https://github.com/kasmkorkmaz07/apex/releases/latest",
   "channel": "stable",
   "dataFolder": "Documents/Apex",
   "strategy": "Test on the development computer first, then publish the portable or installer package without replacing user data.",
   "notes": [
-    "Beyanname takip PDF ve Excel dökümlerinde döneme ait mükellef notları gösterilir.",
-    "PDF dökümlerinde sayfa başına 30 kişi korunur; uzun notlar sayfaya sığdırılır.",
-    "Kurulu güncel Apex ve Fiş Asistanı iyileştirmeleri dahildir."
+    "Güncelleme doğrulama bilgisi kurulum aşamasına doğru aktarılır.",
+    "Aynı Apex senkron bağlantısındaki bilgisayarlar Fiş Asistanı ofis bağlantısını şifreli paylaşır.",
+    "Yeniden yüklenen faturaların silinmiş bulut kaydına takılması düzeltildi.",
+    "Güncel masaüstü tasarımı, Excel tarih sıralaması ve belge işleme düzeltmeleri dahildir."
   ]
 }

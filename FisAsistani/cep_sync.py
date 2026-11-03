@@ -200,6 +200,41 @@ class Bridge:
     def pending_delete(self,id):
         exists=self.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='desktop_outbox'").fetchone()
         return bool(exists and self.db.execute('SELECT 1 FROM desktop_outbox WHERE id=?',(id,)).fetchone())
+    def prepare_reimport(self,rows,client_id,remote):
+        intent=rows[0]['data'].get('_cep_reimport')
+        if intent:return intent
+        image_hash=hashlib.sha256(Path(rows[0]['image']).read_bytes()).hexdigest()
+        kind=self.combine(rows)['data'].get('kind','gider')
+        matches=[d for d in remote.values() if d.get('deleted') and d.get('client')==client_id and d.get('kind')==kind and d.get('sha256')==image_hash]
+        if len(matches)!=1:return None
+        old=matches[0];intent={'id':old['id'],'revision':old['revision'],'data_hash':digest(old['data']),'sha256':image_hash,'client':client_id,'kind':kind}
+        with self.db:
+            for row in rows:
+                row['data']=dict(row['data'],_cep_reimport=intent)
+                self.db.execute('UPDATE receipts SET data=? WHERE id=?',(json.dumps(row['data'],ensure_ascii=False),row['id']))
+        return intent
+
+    def upload_reimport(self,rows,intent):
+        rid=intent['id'];current=self.api.request('/api/documents/'+rid);combined=self.combine(rows)
+        if any(current.get(k)!=intent[k] for k in ('sha256','client','kind')):raise ValueError('Yeniden yüklenen belgenin kimliği değişmiş; eşitleme durduruldu.')
+        if not current.get('deleted') and current['data']==combined['data'] and current['state']==combined['state']:
+            self.link(rid,current['revision'],rows);return
+        if digest(current['data'])!=intent['data_hash']:raise ValueError('Belge diğer cihazda düzenlenmiş; yeniden yükleme üzerine yazılmadı.')
+        if current.get('deleted'):
+            if current['revision']!=intent['revision']:raise ValueError('Silme kaydı diğer cihazda değişmiş; yeniden yükleme bekletildi.')
+            result=self.api.request('/api/documents/'+rid+'/restore',{'revision':current['revision']})
+            revision=result['revision']
+        else:
+            if current['revision']!=intent['revision']+1 or current['state']!='draft':raise ValueError('Belge diğer cihazda değişmiş; yeniden yükleme bekletildi.')
+            revision=current['revision']
+        result=self.api.request('/api/documents/'+rid,{'revision':revision,**combined},method='PATCH')
+        self.link(rid,result['revision'],rows);self.delivery(rid,result['revision'])
+
+    def outgoing_id(self,rows,client_id,remote):
+        file_hash=hashlib.sha256(Path(rows[0]['image']).read_bytes()).hexdigest()
+        kind=self.combine(rows)['data'].get('kind','gider')
+        return str(uuid.uuid5(uuid.NAMESPACE_URL,client_id+':'+kind+':'+file_hash))
+
     def cycle(self):
         self.errors=[];self.error_details=[];self.catalog();remote={r['id']:r for r in self.fetch_all()};groups=self.groups();mapped={g[0]['data'].get('_cep_id'):g for g in groups if g[0]['data'].get('_cep_id')}
         # Recover the upload/link crash window before treating it as a new remote document.
@@ -207,13 +242,14 @@ class Bridge:
             if rows[0]['data'].get('_cep_id') or not rows[0]['image'] or not Path(rows[0]['image']).is_file():continue
             cid=self.db.execute('SELECT remote_id FROM cep_clients WHERE local_id=?',(rows[0]['client'],)).fetchone()
             if not cid:continue
+            if self.prepare_reimport(rows,cid[0],remote):continue
             combined=self.combine(rows);kind=combined['data'].get('kind','gider')
-            file_hash=hashlib.sha256(Path(rows[0]['image']).read_bytes()).hexdigest()
-            rid=str(uuid.uuid5(uuid.NAMESPACE_URL,cid[0]+':'+kind+':'+file_hash))
+            rid=self.outgoing_id(rows,cid[0],remote)
             if rid in remote and remote[rid]['data']==combined['data']:
                 self.link(rid,remote[rid]['revision'],rows,state_override=remote[rid]['state']);mapped[rid]=rows
+        reimports={r[0]['data']['_cep_reimport']['id'] for r in groups if r[0]['data'].get('_cep_reimport') and not r[0]['data'].get('_cep_id')}
         for rid,r in sorted(remote.items(),key=lambda item:item[1].get('state')!='approved'):
-            if self.pending_delete(rid):continue
+            if self.pending_delete(rid) or rid in reimports:continue
             rows=mapped.get(rid,[]);link=self.db.execute('SELECT revision,fingerprint FROM cep_documents WHERE remote_id=?',(rid,)).fetchone()
             try:
                 if link and link[0]==r['revision'] and not (r.get('deleted') and rows):continue
@@ -244,6 +280,10 @@ class Bridge:
         for rows in self.groups():
             try:
                 rid=rows[0]['data'].get('_cep_id');combined=self.combine(rows);link=self.db.execute('SELECT revision,fingerprint FROM cep_documents WHERE remote_id=?',(rid,)).fetchone() if rid else None
+                if not rid and rows[0]['data'].get('_cep_reimport'):
+                    self.upload_reimport(rows,rows[0]['data']['_cep_reimport']);uploaded+=1
+                    if uploaded>=20:break
+                    continue
                 if link:
                     if digest(combined)==link[1]:continue
                     if rid in remote and remote[rid]['revision']!=link[0]:continue
@@ -253,9 +293,8 @@ class Bridge:
                     cid=self.db.execute('SELECT remote_id FROM cep_clients WHERE local_id=?',(rows[0]['client'],)).fetchone()
                     if not cid:continue
                     # Stable across a crash after upload but before saving the local link.
-                    file_hash=hashlib.sha256(Path(rows[0]['image']).read_bytes()).hexdigest()
                     kind=combined['data'].get('kind','gider')
-                    rid=str(uuid.uuid5(uuid.NAMESPACE_URL,cid[0]+':'+kind+':'+file_hash))
+                    rid=self.outgoing_id(rows,cid[0],remote)
                     p={'id':rid,'client':cid[0],'kind':kind,'data':combined['data']};result=self.api.upload(p,rows[0]['image'])
                     if result.get('duplicate'):
                         saved=self.api.request('/api/documents/'+result['id'])

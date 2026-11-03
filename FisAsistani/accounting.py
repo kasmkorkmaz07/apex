@@ -1,19 +1,33 @@
 """Mükellefe özel gelir/gider hesapları ve Zirve aktarımı."""
-import json
-from core import money, date_value, validate, validate_export
+import json,re
+from core import money, date_value, validate, validate_export, export_sort_key
+from special_invoice import invoice_type,is_return,is_withholding,is_special,validate_special,rule_for
 HEADERS=['Evrak Tarihi','Evrak No','Açıklama','VKN / TCKN','KDV Oranı','Matrah','KDV Tutarı','Matrah Hesap Kodu','KDV Hesap Kodu','Kapatılacak Hesap Kodu']
 DESCRIPTIONS=['Z RAPORU','PERAKENDE SATIŞ FİŞİ','GİDER PUSULASI']
 EMIR={'mode':'genel','closing':'320 01','rates':{'1':['740 01','191 01'],'10':['740 10','191 10'],'20':['740 20','191 20']}}
+
+def migrate_return_rules(p):
+ if p.get('return_direction_version')!=2:
+  p=dict(p);p['special_rules']=[dict(r,kind='gider' if r.get('kind')=='gelir' else 'gelir') if r.get('type')=='IADE' else dict(r) for r in p.get('special_rules',[])]
+  p['return_direction_version']=2
+ return p
 
 def profile(store,cid):
  row=store.db.execute('SELECT data FROM accounting_profiles WHERE client=?',(cid,)).fetchone()
  p=json.loads(row[0]) if row else {'mode':'isletme','closing':'','rates':{}}
  for k,v in {'income_code':'ML','income_closing':'','income_rates':{},'descriptions':DESCRIPTIONS,'income_description':'Z RAPORU'}.items():p.setdefault(k,v)
- return p
+ return migrate_return_rules(p)
 
 def save_profile(store,cid,p):
+ p=migrate_return_rules(p)
+ tax_id=str(p.get('tax_id') or '').strip()
+ if tax_id and not re.fullmatch(r'\d{10,11}',tax_id):raise ValueError('Mükellef VKN/TCKN’si 10 veya 11 rakam olmalı; boş bırakabilirsiniz.')
+ p['tax_id']=tax_id
+ from special_invoice import validate_rules
+ validate_rules(p)
  if p['mode'] not in ('isletme','genel'):raise ValueError('Defter türünü seçin.')
  if p.get('income_code','ML') not in ('ML','HZ'):raise ValueError('Gelir kodu ML veya HZ olmalı.')
+ if str(p.get('income_zero_foreign') or '').strip() and not p.get('income_rates',{}).get('0',[''])[0].strip():raise ValueError('Yurtdışı %0 hesabıyla birlikte standart %0 matrah hesabını da doldurun.')
  for field in ('rates','income_rates'):
   for rate,codes in p.get(field,{}).items():
    if len(codes)!=2:raise ValueError('Her oran için iki hesap alanı gerekir.')
@@ -27,16 +41,38 @@ def apply_defaults(store,cid,d):
   d['kod']=p['income_code']
   if not d.get('is_invoice'):d['vkn']=''
   if d.get('is_z_report'):d['aciklama']='Z RAPORU'
+ elif d.get('kind','gider')=='gider' and not str(d.get('kod') or '').strip():
+  d['kod']='MS'
  return d
 
 def resolve(d,p,rate):
+ if is_special(d):
+  rule=rule_for(d,p,rate);return [rule['base'],rule.get('vat','')],rule['closing']
  override=d.get('account_override',{});key=str(int(money(rate))) if money(rate)==int(money(rate)) else str(money(rate))
  income=d.get('kind')=='gelir';defaults=p.get('income_rates' if income else 'rates',{}).get(key,['',''])
  codes=[override.get('base',''),override.get('vat','')] if override else defaults[:]
+ if not override and income and money(rate)==0 and invoice_scenario(d)=='IHRACAT' and str(p.get('income_zero_foreign') or '').strip():
+  codes[0]=p['income_zero_foreign'].strip()
  closing=override.get('closing','') if override else p.get('income_closing' if income else 'closing','')
  if not codes[0] or (money(rate)!=0 and not codes[1]) or not closing:raise ValueError(('Gelir' if income else 'Gider')+' %'+key+' için hesapları tamamlayın (%0 KDV hesabı gerektirmez).')
  if money(rate)==0:codes[1]=''
  return codes,closing
+
+def invoice_scenario(d):
+ from core import normalized
+ values=set()
+ def add(value):
+  value=normalized(str(value or '')).strip()
+  if value:values.add(value)
+ for key in ('invoice_scenario','senaryo','scenario','fatura_senaryosu'):add(d.get(key))
+ try:
+  raw=json.loads(d.get('qr_raw') or '{}')
+  if isinstance(raw,dict):add(raw.get('senaryo'))
+ except (ValueError,TypeError):pass
+ for match in re.finditer(r'\bSENARYO\s*:?\s*([A-Z]+)',normalized(d.get('ocr') or '')):add(match[1])
+ if len(values)>1:
+  raise ValueError(str(d.get('evrak_no') or 'Belge')+': Fatura senaryosu çelişkili ('+', '.join(sorted(values))+'). IHRACAT hesabını seçmeden önce belgeyi kontrol edin.')
+ return next(iter(values),'')
 
 def export(path,records,p):
  from openpyxl import Workbook
@@ -46,22 +82,34 @@ def export(path,records,p):
  sections=[('gider','Genel_Alis'),('gelir','Genel_Satis')]
  for kind,name in sections:
   selected=[(i,dict(d,accounting_mode='genel')) for i,d in records if d.get('kind','gider')==kind]
-  headers=list(HEADERS)
-  if kind=='gelir':headers.append('Evrak Türü')
+  selected.sort(key=lambda record: export_sort_key(record,'evrak_tarihi' if kind=='gelir' else 'tarih'))
+  headers=list(HEADERS)+['Evrak Türü','Tevkifat Alacak Tutarı' if kind=='gider' else 'Tevkifat Borç Tutarı','Tevkifat Hesabı','İade Matrahı','İade KDV Tutarı','İade Matrah Hesabı','İade KDV Hesabı','Hesaplanan KDV (Bilgi)','Tevkifat (Bilgi)','Ödenecek (Bilgi)','Tevkifat İşlem Kodu','Tevkifat Oranı']
   ws=wb.create_sheet(name);ws.append(headers)
   for rid,d in selected:
+   if is_return(d) and d.get('return_direction_version')!=2:raise ValueError(str(d.get('evrak_no',''))+': Eski iade kaydı. Gelir/Giden veya Gider/Gelen bölümünü kontrol edip yeniden onaylayın.')
    validate_export(d,rid)
+   validate_special(d)
+   if is_withholding(d) and (len(d['kalemler'])!=1 or is_return(d)):
+    raise ValueError(str(d.get('evrak_no',''))+': Birden fazla KDV satırlı tevkifat veya tevkifat iadesi için satır bazında hesap dağılımı gerekir; otomatik Excel aktarımı yapılmadı.')
    for line in d['kalemler']:
     rate=money(line['oran'])
-    if rate==0 and kind!='gelir':continue
+    if rate==0 and kind!='gelir' and not is_special(d):continue
     codes,closing=resolve(d,p,rate)
-    values=[date_value(d['evrak_tarihi'] if kind=='gelir' else d['tarih']),d['evrak_no'],d['aciklama'],d.get('vkn',''),float(rate),float(money(line['matrah'])),float(money(line['kdv'])),*codes,closing]
-    if kind=='gelir':values.append('Zraporu' if d.get('is_z_report') else 'Satış Faturası' if d.get('is_invoice') else 'Perakende Satış Fişi')
+    base=money(line['matrah']);tax=money(line['kdv']);ret=is_return(d);wh=is_withholding(d)
+    withheld=money(d['withholding']['amount']) if wh else money('0')
+    rule=rule_for(d,p,rate) if is_special(d) else {}
+    wh_account=rule.get('withholding') or codes[1]
+    same_vat_account=re.sub(r'[^0-9A-Z]','',str(wh_account).upper())==re.sub(r'[^0-9A-Z]','',str(codes[1]).upper())
+    net_sale=wh and kind=='gelir' and same_vat_account
+    posting_tax=tax-withheld if net_sale else tax
+    type_name=('Giden İade Faturası' if kind=='gelir' else 'Gelen İade Faturası') if ret else ('Tevkifatlı Satış Faturası' if kind=='gelir' else 'Tevkifatlı Alış Faturası') if wh else ('Zraporu' if d.get('is_z_report') else 'Satış Faturası' if kind=='gelir' and d.get('is_invoice') else 'Alış Faturası' if d.get('is_invoice') else 'Perakende Satış Fişi')
+    rule=rule_for(d,p,rate) if is_special(d) else {}
+    values=[date_value(d['evrak_tarihi'] if kind=='gelir' else d['tarih']),d['evrak_no'],d['aciklama'],d.get('vkn',''),float(rate),None if ret else float(base),None if ret else float(posting_tax),'' if ret else codes[0],'' if ret else codes[1],closing,type_name,float(withheld) if wh and not net_sale else None,wh_account if wh and not net_sale else '',float(base) if ret else None,float(tax) if ret and rate!=0 else None,codes[0] if ret else '',codes[1] if ret else '',float(tax),float(withheld) if wh else None,float(base+tax-withheld),d.get('withholding',{}).get('code','') if wh else '',d.get('withholding',{}).get('ratio','') if wh else '']
     ws.append(values)
     for col,title in enumerate(headers,1):
      cell=ws.cell(ws.max_row,col)
      if title=='Evrak Tarihi':cell.number_format='dd.mm.yyyy'
-     elif title in ('KDV Oranı','Matrah','KDV Tutarı'):cell.number_format='#,##0.00'
+     elif col in (5,6,7,12,14,15,18,19,20):cell.number_format='#,##0.00'
      else:cell.data_type='s';cell.number_format='@'
   for c in ws[1]:c.font=Font(bold=True,color='FFFFFF');c.fill=PatternFill('solid',fgColor='234B58')
   ws.freeze_panes='A2';ws.auto_filter.ref=ws.dimensions
@@ -70,6 +118,11 @@ def export(path,records,p):
  guide=wb.create_sheet('Sutun_Eslestirme');guide.append(['Aktarım sayfası','Excel sütun no','Alan','Yön'])
  for kind,name in sections:
   for col in wb[name][1]:guide.append([name+'_Aktarim',col.column,col.value,'Matrah: Alacak / Kapatma: Borç' if kind=='gelir' else 'Matrah: Borç / Kapatma: Alacak'])
+ guide.append(['Tutar tanımı',12,'Tevkifat; hesap sütunu 13','Alış: Alacak / Satış: Borç; bağlantılı KDV yok'])
+ guide.append(['Tutar tanımı',14,'İade matrahı; hesap 16; KDV 15 / hesap 17','Gelir/Giden: Alacak / Gider/Gelen: Borç'])
+ guide.append(['Evrak türü',11,'Kapatma hesabı sütunu 10','Giden iade: Borç; Gelen iade: Alacak'])
+ guide.append(['Bilgi sütunları','18–22','Kontrol içindir','Muhasebe tutarına tekrar bağlamayın'])
+ guide.append(['Kontrol','','Normal ve tevkifatlı/iade belgeler aynı sayfadadır.','İlk aktarımı kaydetmeden borç/alacak bakiyesini kontrol edin.'])
  for col,width in zip('ABCD',(28,20,32,43)):guide.column_dimensions[col].width=width
  from excel_save import save_workbook
  save_workbook(wb,path)

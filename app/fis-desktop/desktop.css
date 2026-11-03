@@ -12,3 +12,73 @@ html,body{min-width:360px}body{max-width:1280px!important;margin:0 auto!importan
 .desktop-compact-stat #statCnt,.desktop-compact-stat #statPend{font-size:9px;padding:2px 5px}
 .desktop-compact-stat .tax-summary{width:100%;padding:0;margin:0;border:0;display:flex;justify-content:space-between;gap:6px}
 .desktop-compact-stat .tax-summary small{font-size:9px}.desktop-compact-stat .tax-summary b{font-size:12px}
+
+/* A single reading order for date, title and invoice type. */
+#home #documents{display:block;column-count:2;column-gap:10px}
+#home #documents>.document,#home #documents>.document-select{display:inline-flex;width:100%;break-inside:avoid;margin:0 0 10px}
+#home #documents>.invoice-type-heading{column-span:all}
+@media(max-width:899px){#home #documents{column-count:1}}
+
+#documentSearch{width:210px;min-width:140px;padding:9px 12px;border-radius:18px;font-size:13px}#home #documents.search-results{column-count:1}.import-issue-row{display:flex;align-items:center;gap:12px;margin:12px 0}.import-issue-open{flex:1;text-align:left;white-space:normal;min-width:0;padding:14px}.import-issue-open>*{display:block;margin:4px 0;overflow-wrap:anywhere}.import-issue-open small{font-weight:normal;color:var(--muted)}@media(max-width:700px){#documentSearch{width:100%;order:2}.section-title{flex-wrap:wrap}}
+.import-issue-open small{letter-spacing:normal;font-size:12px}
+
+/* ---- Belgeler araç çubuğu: kompakt arama, kart sıralama, silinenler çipi, seçim butonları ---- */
+.doc-head{align-items:center;gap:10px 12px}
+.doc-tools{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:8px;flex:1 1 auto;min-width:0}
+.doc-tools button,.doc-tools .tool-chip{min-height:36px;padding:0 14px;border-radius:99px;font-size:13px;line-height:1;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.doc-tools svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;flex:none}
+
+/* arama */
+.doc-search{position:relative;display:block;margin:0;width:190px;flex:0 1 190px;transition:width .2s,flex-basis .2s}
+.doc-search:focus-within{width:250px;flex-basis:250px}
+.doc-search svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);width:15px;height:15px;color:var(--mut);pointer-events:none}
+.doc-search #documentSearch{width:100%;min-width:0;min-height:36px;height:36px;margin:0;padding:0 12px 0 34px;border-radius:99px;font-size:13px;background:var(--sec);border:1px solid transparent}
+.doc-search #documentSearch:focus{background:var(--card);border-color:var(--pri);box-shadow:0 0 0 3px var(--soft)}
+.doc-search #documentSearch::-webkit-search-cancel-button{cursor:pointer}
+
+/* sıralama: açılır kartlar */
+.sort-wrap{position:relative}
+.tool-chip{background:var(--sec);color:var(--ink);font-weight:650}
+.tool-chip i{font-style:normal;font-size:10px;color:var(--mut)}
+.tool-chip[aria-expanded=true]{background:var(--soft);color:var(--pri)}
+#sortMenu{position:absolute;top:calc(100% + 8px);right:0;z-index:40;width:290px;display:flex;flex-direction:column;gap:6px;padding:8px;border-radius:20px;background:var(--card);border:1px solid var(--line);box-shadow:0 18px 50px rgba(0,0,0,.38);transform-origin:top right;animation:sortIn .16s ease-out}
+#sortMenu[hidden]{display:none!important}
+@keyframes sortIn{from{opacity:0;transform:translateY(-6px) scale(.97)}to{opacity:1;transform:none}}
+.sort-card{display:flex;align-items:center;gap:12px;width:100%;min-height:0;padding:10px 12px;border-radius:14px;background:var(--sec);color:var(--ink);text-align:left;font-weight:500;border:1px solid transparent;white-space:normal}
+.sort-card svg{width:34px;height:34px;padding:8px;border-radius:11px;background:var(--card);color:var(--mut);box-sizing:border-box}
+.sort-card span{flex:1;min-width:0;display:block}.sort-card b{display:block;font-size:13.5px}.sort-card small{display:block;margin-top:3px;font-size:11.5px;color:var(--mut);font-weight:400}
+.sort-card em{font-style:normal;opacity:0;color:var(--pri);font-weight:800}
+.sort-card:hover{border-color:var(--line)}
+.sort-card.on{background:var(--soft);border-color:var(--pri)}.sort-card.on svg{background:var(--pri);color:#fff}.sort-card.on em{opacity:1}
+
+/* silinenler çipi */
+.toggle-chip{display:inline-flex;align-items:center;gap:6px;margin:0;min-height:36px;padding:0 14px 0 12px;border-radius:99px;background:var(--sec);color:var(--mut);font-size:13px;font-weight:650;cursor:pointer;user-select:none;transition:background .15s,color .15s}
+.toggle-chip input{position:absolute;opacity:0;width:1px;height:1px;min-height:0;margin:0;padding:0;pointer-events:none}
+.toggle-chip svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+.toggle-chip.on{background:var(--soft);color:var(--pri);box-shadow:inset 0 0 0 1px var(--pri)}
+.toggle-chip:focus-within{box-shadow:0 0 0 3px var(--soft)}
+
+/* seçim modu butonları: aramanın soluna, birbirine yakın */
+#selectionBar{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:4px;padding:0;margin:0}
+#selectionBar[hidden]{display:none!important}
+#selectionBar button{min-height:32px;padding:0 11px;font-size:12px;border-radius:99px;background:var(--sec);color:var(--ink)}
+#selectionBar #deleteSelected:not(:disabled){background:var(--badb);color:var(--bad)}
+#selectionBar #approveSelected:not(:disabled),#selectionBar #restoreSelected:not(:disabled){background:var(--soft);color:var(--pri)}
+#selectionBar .compact-check{min-height:32px;padding:0 10px 0 8px;border-radius:99px;background:var(--sec);font-size:12px;font-weight:600}
+@media(max-width:700px){.doc-tools{justify-content:flex-start}.doc-search,.doc-search:focus-within{width:100%;flex:1 1 100%;order:-1}#sortMenu{right:auto;left:0}}
+/* seçim modunda yer açmak için çipler yalnız simge gösterir */
+.doc-head:has(#selectionBar:not([hidden])) .doc-search{width:150px;flex-basis:150px}
+.doc-head:has(#selectionBar:not([hidden])) .doc-search:focus-within{width:190px;flex-basis:190px}
+.doc-head:has(#selectionBar:not([hidden])) #deletedChip span,.doc-head:has(#selectionBar:not([hidden])) #sortBtn span,.doc-head:has(#selectionBar:not([hidden])) #sortBtn i{display:none}
+.doc-head:has(#selectionBar:not([hidden])) #deletedChip,.doc-head:has(#selectionBar:not([hidden])) #sortBtn{padding:0 11px}
+.doc-head:has(#selectionBar:not([hidden])) #deletedChip.on span{display:inline}
+#selectionBar button{padding:0 9px;letter-spacing:0}
+.sort-card,.sort-card *{letter-spacing:0}
+.sort-card svg{flex:none}
+
+/* Desktop actions and dismissible synchronization notices. */
+#desktopExcel{display:flex;align-items:center;justify-content:center;gap:10px}
+#desktopExcel img{width:32px;height:32px;object-fit:contain}
+.desktop-sync-settings{padding:18px}.desktop-sync-settings p{font-size:13px;color:var(--muted);line-height:1.5}
+.sync-trash{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-width:40px;margin:6px 0}
+.sync-trash svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}

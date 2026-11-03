@@ -1,4 +1,6 @@
-import {parseDraft as parseDraftBase,parseQr,vatLine,matchVendor,money,mergeQr,checkDoc,isValidVkn,looksLikeProduct,normalizeTitle,excludeAutomaticZero,reconcileVat,vatBalanced,sameDocument} from './parser.js';
+import {partyCheck} from './party.js';
+import {invoiceType,isReturn,isWithholding,typeRank,validateSpecial} from './special.js';
+import {parseDraft as parseDraftBase,parseQr,vatLine,matchVendor,money,mergeQr,checkDoc,isValidVkn,looksLikeProduct,normalizeTitle,excludeAutomaticZero,reconcileVat,vatBalanced,sameDocument,applyPartyBlocks} from './parser.js';
 function parseDraft(text='',kind='gider',qrs=[]){return parseDraftBase(text,kind,qrs,localStorage.getItem('qr-profile')||'google');}
 var series={active:false,n:0,dup:0},capMode='',dupStack=[],dupTimer;
 var MON=['Oca','Şub','Mar','Nis','May','Haz','Tem','Ağu','Eyl','Eki','Kas','Ara'],MONL=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
@@ -17,7 +19,11 @@ const db=await new Promise((ok,bad)=>{const r=indexedDB.open('fis-cep',1);r.onup
 const store=(mode,fn)=>new Promise((ok,bad)=>{const tx=db.transaction('queue',mode),r=fn(tx.objectStore('queue'));tx.oncomplete=()=>ok(r.result);tx.onerror=()=>bad(tx.error);});
 const all=()=>store('readonly',s=>s.getAll()),put=x=>store('readwrite',s=>s.put(x)),del=id=>store('readwrite',s=>s.delete(id));
 let sayTimer;function say(s,err){const n=$('notice');clearTimeout(sayTimer);n.textContent=(s||'').length>170?s.slice(0,167)+'…':(s||'');n.classList.toggle('show',!!s);n.classList.toggle('err',!!err);if(s)sayTimer=setTimeout(()=>n.classList.remove('show'),err?9000:5000);}
-function page(id){for(const n of ['home','editor','settings','vendors','clients'])$(n).hidden=n!==id;$('tabbar').hidden=id==='editor';$('topbar').hidden=id!=='home';document.body.classList.toggle('nohead',id!=='home');for(const b of document.querySelectorAll('[data-tab]'))b.classList.toggle('on',b.dataset.tab===id);scrollTo(0,0);}
+let homeScroll=0,currentPage='home',editorReturn=null;
+async function leaveEditor(saved=null){const back=editorReturn;editorReturn=null;page('home');await render();if(back)await back(saved);}
+async function issueDocument(r,dialog,refresh){const pos=dialog.scrollTop;dialog.close();editorReturn=async saved=>{if(refresh)await refresh(saved);else{if(saved?.state==='approved')dialog.querySelector('[data-issue-id="'+CSS.escape(r.id)+'"]')?.remove();showPanel(dialog);}dialog.scrollTop=pos;};await openDocument(r);}
+const searchText=v=>String(v||'').toLocaleLowerCase('tr-TR').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/ı/g,'i');
+function page(id){if(currentPage==='home'&&id!=='home')homeScroll=window.scrollY;const returning=id==='home'&&currentPage!=='home';currentPage=id;for(const n of ['home','editor','settings','vendors','clients'])$(n).hidden=n!==id;$('tabbar').hidden=id==='editor';$('topbar').hidden=id!=='home';document.body.classList.toggle('nohead',id!=='home');for(const b of document.querySelectorAll('[data-tab]'))b.classList.toggle('on',b.dataset.tab===id);scrollTo(0,returning?homeScroll:0);if(returning)requestAnimationFrame(()=>scrollTo(0,homeScroll));}
 function caught(fn){return async(...args)=>{try{await fn(...args);}catch(e){say(e.message||'İşlem tamamlanamadı.',true);}};}
 function configured(){return !!window.FisDesktop||(cfg.url&&cfg.token);}
 const netFail=e=>e instanceof TypeError||e?.name==='TimeoutError'||e?.name==='AbortError'||/Failed to fetch|NetworkError|Load failed/i.test(e?.message||'');
@@ -48,33 +54,50 @@ async function jsonApi(path,p,method='POST'){return (await api(path,{method,head
 function renderClients(){const selected=$('client').value||localStorage.getItem('client');$('client').replaceChildren();for(const c of alphabetic(catalog.clients)){const o=new Option(c.name,c.id);$('client').add(o);}if(!catalog.clients.length)$('client').add(new Option('Mükellef listesi henüz eşitlenmedi',''));if(catalog.clients.some(c=>c.id===selected))$('client').value=selected;updatePicker();}
 function clientName(id){return catalog.clients.find(c=>c.id===id)?.name||'Mükellef';}
 function toggle(k){kind=k;loadMonth();document.documentElement.dataset.kind=k;$('expense').classList.toggle('active',k==='gider');$('income').classList.toggle('active',k==='gelir');render();}
-async function render(){updatePicker();const local=await all(),ids=new Set(local.map(x=>x.id));const rows=[...local,...remote.filter(x=>!ids.has(x.id)&&!isPurged(x.id))].filter(x=>!phoneHidden().includes(x.id)).filter(x=>Boolean(x.deleted)===$('showDeleted').checked).filter(x=>(!$('client').value||x.client===$('client').value)&&x.kind===kind).filter(x=>recordMonth(x)===$('workMonth').value).sort((a,b)=>Number(a.state==='approved')-Number(b.state==='approved')||(b.created||'').localeCompare(a.created||''));shown=rows;for(const id of selected)if(!rows.some(r=>r.id===id))selected.delete(id);$('selectionBar').hidden=!selecting;updateSelection();$('documents').replaceChildren();$('summary').textContent=`${rows.length} belge · ${rows.reduce((n,r)=>n+vatCards(r).length,0)} KDV kaydı · ${local.length} gönderim bekliyor`;updateStats(rows,local);updateQuick(rows);
+async function render(){updatePicker();const local=await all(),ids=new Set(local.map(x=>x.id));const rows=[...local,...remote.filter(x=>!ids.has(x.id)&&!isPurged(x.id))].filter(x=>!phoneHidden().includes(x.id)).filter(x=>Boolean(x.deleted)===$('showDeleted').checked).filter(x=>(!$('client').value||x.client===$('client').value)&&x.kind===kind).filter(x=>recordMonth(x)===$('workMonth').value).map(r=>({...r,data:recoverParty(r.data,r.kind)})).filter(r=>!$('documentSearch').value.trim()||searchText([r.data.aciklama,r.data.evrak_no].join(' ')).includes(searchText($('documentSearch').value.trim()))).sort(compareDocuments);$('documents').classList.toggle('search-results',!!$('documentSearch').value.trim());shown=rows;for(const id of selected)if(!rows.some(r=>r.id===id))selected.delete(id);$('selectionBar').hidden=!selecting;updateSelection();$('documents').replaceChildren();$('summary').textContent=`${rows.length} belge · ${rows.reduce((n,r)=>n+vatCards(r).length,0)} KDV kaydı · ${local.length} gönderim bekliyor`;updateStats(rows,local);updateQuick(rows);
  for(const v of processingCards.values()){const b=document.createElement('div');b.className='document processing';const text=document.createElement('strong');text.textContent=v.title||'Fiş okunuyor…';const progress=document.createElement('progress');progress.removeAttribute('value');const fields=document.createElement('small');fields.textContent=[v.data?.vkn,v.data?.evrak_no,v.data?.toplam?formatAmount(v.data.toplam)+' ₺':'',...(v.data?.kalemler||[]).map(l=>'%'+Number(l.oran)+': '+formatAmount(Number(l.matrah)+Number(l.kdv)))].filter(Boolean).join(' · ');b.append(text,fields,progress);$('documents').append(b);}
- for(const r of rows){for(const vat of vatCards(r)){const b=document.createElement('button');b.className='document';const tag=document.createElement('i');tag.className='badge '+(r.deleted?'del':r.image?'wait':r.state==='approved'?'ok':'chk');tag.textContent=r.syncConflict?'Eşitleme seçimi bekliyor':vat&&!r.deleted&&r.state!=='approved'&&(r.data.vat_reviewed_rates||[]).includes(vat.rate)?'Bu KDV kontrol edildi':r.deleted?'Silindi · geri alınabilir':r.image?'Cihazda · gönderim bekliyor':r.state==='approved'?'Onaylı':'Kontrol bekliyor';const t=document.createElement('strong');t.textContent=(r.data.aciklama||'Ünvanı kontrol edin')+(vat?' · KDV %'+vat.rate:'');const sub=document.createElement('p');sub.className='sub';sub.textContent=[r.data.evrak_tarihi||'Tarih eksik',clientName(r.client)].join(' · ');const av=document.createElement('div');av.className='av';av.textContent=((r.data.aciklama||'?').split(/\s+/).filter(Boolean).slice(0,2).map(w=>w[0]).join('')||'?').toLocaleUpperCase('tr-TR');const dm=document.createElement('div');dm.className='dm';dm.append(t,sub);const am=document.createElement('div');am.className='am';const amt=document.createElement('b');amt.textContent=(vat?vat.gross:r.data.toplam)?Number(vat?vat.gross:r.data.toplam).toLocaleString('tr-TR',{minimumFractionDigits:2})+' ₺':'—';am.append(amt,tag);b.append(av,dm,am);b.onclick=caught(()=>openDocument(r,vat?.rate??null));
+ let lastInvoiceGroup=null;for(const r of rows){const group=typeRank(r.data);if($('documentSort').value==='type'&&group!==lastInvoiceGroup){const h=document.createElement('h3');h.className='invoice-type-heading';h.textContent=group===0?'Tevkifat':group===1?'İade':kind==='gelir'?'Satış':'Alış';$('documents').append(h);lastInvoiceGroup=group;}for(const vat of vatCards(r)){const b=document.createElement('button');b.className='document'+(isReturn(r.data)?' invoice-return':isWithholding(r.data)?' invoice-withholding':'');b.title=isReturn(r.data)?'İade faturası':isWithholding(r.data)?'Tevkifatlı fatura':'';const tag=document.createElement('i');tag.className='badge '+(r.deleted?'del':r.image?'wait':r.state==='approved'?'ok':'chk');tag.textContent=r.syncConflict?'Eşitleme seçimi bekliyor':vat&&!r.deleted&&r.state!=='approved'&&(r.data.vat_reviewed_rates||[]).includes(vat.rate)?'Bu KDV kontrol edildi':r.deleted?'Silindi · geri alınabilir':r.image?'Cihazda · gönderim bekliyor':r.state==='approved'?'Onaylı':'Kontrol bekliyor';const t=document.createElement('strong');t.textContent=(r.data.evrak_no||'Belge numarası eksik')+(vat?' · KDV %'+vat.rate:'');const sub=document.createElement('p');sub.className='sub';sub.textContent=[r.data.evrak_tarihi||'Tarih eksik',r.data.aciklama||'Ünvanı kontrol edin'].join(' · ');const av=document.createElement('div');av.className='av';av.textContent=((r.data.aciklama||'?').split(/\s+/).filter(Boolean).slice(0,2).map(w=>w[0]).join('')||'?').toLocaleUpperCase('tr-TR');const dm=document.createElement('div');dm.className='dm';dm.append(t,sub);const am=document.createElement('div');am.className='am';const amt=document.createElement('b');amt.textContent=(vat?vat.gross:r.data.toplam)?Number(vat?vat.gross:r.data.toplam).toLocaleString('tr-TR',{minimumFractionDigits:2})+' ₺':'—';am.append(amt,tag);b.append(av,dm,am);b.onclick=caught(()=>openDocument(r,vat?.rate??null));
  if(selecting){const wrapper=document.createElement('div');wrapper.className='document-select';const check=document.createElement('input');check.type='checkbox';check.setAttribute('aria-label','Belgeyi seç: '+t.textContent);check.checked=selected.has(r.id);check.disabled=false;check.onchange=()=>{check.checked?selected.add(r.id):selected.delete(r.id);render();};wrapper.append(check,b);$('documents').append(wrapper);}else $('documents').append(b);}}
  if(!rows.length&&!processingCards.size){const e=document.createElement('div');e.className='empty';e.innerHTML='<svg viewBox="0 0 24 24"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg><b>Henüz belge yok</b>Yukarıdan fiş veya fatura çekerek başlayın.';$('documents').append(e);}
 }
 function addVat(rate='',gross=''){const row=document.createElement('div');row.className='vat-row';row.addEventListener('change',()=>{row.dataset.userEdited='1';});const select=document.createElement('select');select.setAttribute('aria-label','KDV oranı');select.add(new Option('Oran seçin',''));for(const n of [0,1,10,20])select.add(new Option('%'+n,n));if(![0,1,10,20].includes(+rate)&&gross!=='')select.add(new Option('%'+rate+' (belgeden)',rate));select.value=rate===''?'':String(+rate);const value=document.createElement('input');value.inputMode='decimal';value.placeholder='KDV dahil tutar';value.setAttribute('aria-label','KDV dahil tutar');value.value=formatAmount(gross);value.lang='tr';value.maxLength=24;value.addEventListener('blur',()=>{value.value=formatAmount(value.value);});const remove=document.createElement('button');remove.type='button';remove.textContent='×';remove.setAttribute('aria-label','Satırı kaldır');remove.onclick=()=>row.remove();row.append(select,value,remove);$('vatRows').append(row);}
-async function openDocument(r){editing={...r,data:structuredClone(r.data)};let offlineOpen=false;if(!r.image&&configured()){try{const latest=await (await api('/api/documents/'+r.id)).json();editing={...latest};}catch(e){if(!e.network)throw e;offlineOpen=true;}}editing.data=reconcileVat(resolveVendor(editing.data));if(!(editing.data.kalemler||[]).length&&Number(editing.data.toplam)>0&&editing.data.ocr){const recovered=parseDraft(editing.data.ocr,editing.kind);if(recovered.kalemler.length&&Math.abs(Number(recovered.toplam)-Number(editing.data.toplam))<.03)editing.data={...editing.data,kalemler:recovered.kalemler};}const d=editing.data;const visibleLines=d.kalemler||[];if(!editing.orig)editing.orig=snap(editing.data);$('deleteDoc').innerHTML=editing.deleted?IC.restore:IC.trash;$('deleteDoc').setAttribute('aria-label',editing.deleted?'Geri al':'Sil');$('deleteDoc').classList.toggle('danger',!editing.deleted);$('deleteDoc').disabled=false;$('saveDraft').disabled=!!editing.deleted;$('approveDoc').disabled=!!editing.deleted;$('reanalyze').disabled=!!editing.deleted;for(const [id,key] of [['title','aciklama'],['vkn','vkn'],['date','evrak_tarihi'],['number','evrak_no'],['total','toplam']])$(id).value=id==='total'?formatAmount(d[key]):d[key]||'';$('docType').value=d.is_z_report?'z':d.is_invoice?'invoice':'receipt';$('raw').textContent=[d.qr_raw?'KAREKOD VERİSİ:\n'+d.qr_raw:'',d.ocr||''].filter(Boolean).join('\n\n');$('vatRows').replaceChildren();for(const l of visibleLines)addVat(l.oran,(Number(l.matrah)+Number(l.kdv)).toFixed(2));if(!visibleLines.length)addVat('',d.toplam||'');if(previewUrl)URL.revokeObjectURL(previewUrl);let blob=editing.image;if(!blob){try{blob=await (await api('/api/documents/'+r.id+'/image')).blob();}catch(e){if(!e.network)throw e;offlineOpen=true;}}if(blob){previewUrl=URL.createObjectURL(blob);$('preview').src=previewUrl;}else{$('preview').removeAttribute('src');}if(offlineOpen)say('Ofise ulaşılamadı; belge son kayıtlı bilgilerle açıldı, fotoğraf yüklenemedi. Değişiklikler bağlantı gelince kaydedilebilir.',true);$('editImage').hidden=window.FisDesktop?(editing.state==='approved'||!!editing.data.qr_only):(!editing.image||!!editing.data.qr_only);$('aiRead').hidden=$('editImage').hidden;$('preview').style.transform='';inlineScale=1;page('editor');showConflict(editing);}
-function formData(approve){const d={...editing.data,aciklama:$('title').value.trim(),vkn:$('vkn').value.trim(),evrak_tarihi:$('date').value.trim(),evrak_no:$('number').value.trim(),toplam:Number.isFinite(money($('total').value))?money($('total').value).toFixed(2):'',is_z_report:$('docType').value==='z',is_invoice:$('docType').value==='invoice',review_ack:!!approve,vat_manually_reviewed:!!approve,kind:editing.kind};d.manual_zero=!!editing.data.manual_zero||[...$('vatRows').children].some(row=>row.dataset.userEdited==='1'&&Number(row.querySelector('select').value)===0);d.tarih=d.evrak_tarihi;assignMonth(d,{period:d.selected_period||editing.period||$('workMonth').value,kind:editing.kind});d.kalemler=[...$('vatRows').children].filter(row=>row.querySelector('input').value.trim()!=='').map(row=>{if(row.querySelector('select').value==='')throw Error('KDV oranını seçin.');const rate=Number(row.querySelector('select').value),gross=money(row.querySelector('input').value);const original=(editing.data.kalemler||[]).filter(l=>Number(l.oran)===rate);if(original.length===1&&Math.round((Number(original[0].matrah)+Number(original[0].kdv))*100)===Math.round(gross*100))return {...original[0]};return vatLine(rate,gross);});if(d.is_z_report){if(d.kind!=='gelir')throw Error('Z raporunu Gelir bölümüne yükleyin.');d.vkn='';d.aciklama='Z RAPORU';}if(approve&&d.qr_currency&&!['TRY','TRL','TL'].includes(d.qr_currency))throw Error('Dövizli kodlar otomatik TL olarak onaylanamaz. Bilgisayarda kur ve tutarları kontrol edin.');if(d.kalemler.some(l=>!Number.isFinite(+l.matrah)||!Number.isFinite(+l.kdv)))throw Error('KDV tutarlarını kontrol edin.');d.aciklama=normalizeTitle(d.aciklama);if(approve&&!vatBalanced(d))throw Error('KDV dağılımı toplamı, KDV dahil toplam ile kuruşu kuruşuna aynı olmalı. Eksik tutarı ve oranı kontrol edin.');if(approve)d.vendor_confirmed_at=new Date().toISOString();return d;}
+async function openDocument(r){editing={...r,data:structuredClone(r.data)};let offlineOpen=false;if(!r.image&&configured()){try{const latest=await (await api('/api/documents/'+r.id)).json();editing={...latest};}catch(e){if(!e.network)throw e;offlineOpen=true;}}editing.data=reconcileVat(resolveVendor(recoverParty(editing.data,editing.kind)));if(!(editing.data.kalemler||[]).length&&Number(editing.data.toplam)>0&&editing.data.ocr){const recovered=parseDraft(editing.data.ocr,editing.kind);if(recovered.kalemler.length&&Math.abs(Number(recovered.toplam)-Number(editing.data.toplam))<.03)editing.data={...editing.data,kalemler:recovered.kalemler};}const d=editing.data;const visibleLines=d.kalemler||[];if(!editing.orig)editing.orig=snap(editing.data);$('deleteDoc').innerHTML=editing.deleted?IC.restore:IC.trash;$('deleteDoc').setAttribute('aria-label',editing.deleted?'Geri al':'Sil');$('deleteDoc').classList.toggle('danger',!editing.deleted);$('deleteDoc').disabled=false;$('saveDraft').disabled=!!editing.deleted;$('approveDoc').disabled=!!editing.deleted;$('reanalyze').disabled=!!editing.deleted;for(const [id,key] of [['title','aciklama'],['vkn','vkn'],['date','evrak_tarihi'],['number','evrak_no'],['total','toplam']])$(id).value=id==='total'?formatAmount(d[key]):d[key]||'';$('docType').value=d.is_z_report?'z':d.is_invoice?'invoice':'receipt';$('raw').textContent=[d.qr_raw?'KAREKOD VERİSİ:\n'+d.qr_raw:'',d.ocr||''].filter(Boolean).join('\n\n');$('vatRows').replaceChildren();for(const l of visibleLines)addVat(l.oran,(Number(l.matrah)+Number(l.kdv)).toFixed(2));if(!visibleLines.length)addVat('',d.toplam||'');if(previewUrl)URL.revokeObjectURL(previewUrl);let blob=editing.image;if(!blob){try{blob=await (await api('/api/documents/'+r.id+'/image')).blob();}catch(e){if(!e.network)throw e;offlineOpen=true;}}if(blob){previewUrl=URL.createObjectURL(blob);$('preview').src=previewUrl;}else{$('preview').removeAttribute('src');}if(offlineOpen)say('Ofise ulaşılamadı; belge son kayıtlı bilgilerle açıldı, fotoğraf yüklenemedi. Değişiklikler bağlantı gelince kaydedilebilir.',true);$('editImage').hidden=window.FisDesktop?(editing.state==='approved'||!!editing.data.qr_only):(!editing.image||!!editing.data.qr_only);$('aiRead').hidden=$('editImage').hidden;$('preview').style.transform='';$('zoomPreview').scrollTop=0;inlineScale=1;page('editor');showSpecialEditor(d);showPartyWarning(d);showConflict(editing);}
+function formData(approve){const d={...editing.data,aciklama:$('title').value.trim(),vkn:$('vkn').value.trim(),evrak_tarihi:$('date').value.trim(),evrak_no:$('number').value.trim(),toplam:Number.isFinite(money($('total').value))?money($('total').value).toFixed(2):'',is_z_report:$('docType').value==='z',is_invoice:$('docType').value==='invoice',review_ack:!!approve,vat_manually_reviewed:!!approve,kind:editing.kind};d.manual_zero=!!editing.data.manual_zero||[...$('vatRows').children].some(row=>row.dataset.userEdited==='1'&&Number(row.querySelector('select').value)===0);d.tarih=d.evrak_tarihi;assignMonth(d,{period:d.selected_period||editing.period||$('workMonth').value,kind:editing.kind});d.kalemler=[...$('vatRows').children].filter(row=>row.querySelector('input').value.trim()!=='').map(row=>{if(row.querySelector('select').value==='')throw Error('KDV oranını seçin.');const rate=Number(row.querySelector('select').value),gross=money(row.querySelector('input').value);const original=(editing.data.kalemler||[]).filter(l=>Number(l.oran)===rate);if(original.length===1&&Math.round((Number(original[0].matrah)+Number(original[0].kdv))*100)===Math.round(gross*100))return {...original[0]};return vatLine(rate,gross);});if(d.is_z_report){if(d.kind!=='gelir')throw Error('Z raporunu Gelir bölümüne yükleyin.');d.vkn='';d.aciklama='Z RAPORU';}if(approve&&d.qr_currency&&!['TRY','TRL','TL'].includes(d.qr_currency))throw Error('Dövizli kodlar otomatik TL olarak onaylanamaz. Bilgisayarda kur ve tutarları kontrol edin.');if(d.kalemler.some(l=>!Number.isFinite(+l.matrah)||!Number.isFinite(+l.kdv)))throw Error('KDV tutarlarını kontrol edin.');d.aciklama=normalizeTitle(d.aciklama);if(approve&&!vatBalanced(d))throw Error('KDV dağılımı toplamı, KDV dahil toplam ile kuruşu kuruşuna aynı olmalı. Eksik tutarı ve oranı kontrol edin.');readSpecialEditor(d,approve);if(approve&&isReturn(d))d.return_direction_version=2;validatePartyApproval(d,approve);if(approve)d.vendor_confirmed_at=new Date().toISOString();return d;}
 let saving=false;
 async function save(approve){if(saving)return;saving=true;$('approveDoc').disabled=true;try{return await saveOnce(approve);}finally{saving=false;$('approveDoc').disabled=false;}}
 async function saveOnce(approve){const d=formData(approve),complete=true,state=approve&&complete?'approved':'draft';
- if(approve){const w=checkDoc({type:$('docType').value,vkn:d.vkn,date:d.evrak_tarihi,total:d.toplam,gross:d.kalemler.reduce((a,l)=>a+Number(l.matrah)+Number(l.kdv),0),title:d.aciklama}),sig=w.join('|')+JSON.stringify(d);$('warnBox').replaceChildren(...w.map(t=>{const x=document.createElement('div');x.textContent='⚠ '+t;return x;}));}if(editing.image&&!editing.desktop){if(editing.syncConflict)throw Error('Önce eşitleme kartından kaydı seçin.');editing={...editing,data:d,state};await put(editing);if(approve){try{void logCorrection(editing).catch(()=>{});}catch(e){console.warn('düzeltme kaydı',e);}}}else{await jsonApi('/api/documents/'+editing.id,{revision:editing.revision,state,data:d,...(editing.imageEdited?{imageBase64:await blobB64(editing.image)}:{})},'PATCH');if(approve){try{void logCorrection({...editing,data:d}).catch(()=>{});}catch(e){console.warn('Düzeltme kaydı alınamadı');}}}if(approve)rememberApprovedVendors([{...editing,data:d,state}]);say(approve?(complete?'Onay kaydedildi. Bilgisayar aktarım durumu eşitlemede kontrol edilir.':'Bu KDV kaydı onaylandı. Diğer KDV kartını da kontrol edip onaylayın.'):'Taslak kaydedildi.');page('home');await render();void sync().catch(e=>say(e.message,true));}
+ if(editing.importStaged){const {importStaged,...record}=editing;const saved={...record,data:assignMonth(d,record),state};await put(saved);await leaveEditor(saved);say(approve?'Onay kaydedildi; kalan belgeleri kontrol edebilirsiniz.':'Taslak kaydedildi; kalan belgeleri kontrol edebilirsiniz.');return;}
+ if(approve){const w=checkDoc({type:$('docType').value,vkn:d.vkn,date:d.evrak_tarihi,total:d.toplam,gross:d.kalemler.reduce((a,l)=>a+Number(l.matrah)+Number(l.kdv),0),title:d.aciklama}),sig=w.join('|')+JSON.stringify(d);$('warnBox').replaceChildren(...w.map(t=>{const x=document.createElement('div');x.textContent='⚠ '+t;return x;}));}if(editing.image&&!editing.desktop){if(editing.syncConflict)throw Error('Önce eşitleme kartından kaydı seçin.');editing={...editing,data:d,state};await put(editing);if(approve){try{void logCorrection(editing).catch(()=>{});}catch(e){console.warn('düzeltme kaydı',e);}}}else{await jsonApi('/api/documents/'+editing.id,{revision:editing.revision,state,data:d,...(editing.imageEdited?{imageBase64:await blobB64(editing.image)}:{})},'PATCH');if(approve){try{void logCorrection({...editing,data:d}).catch(()=>{});}catch(e){console.warn('Düzeltme kaydı alınamadı');}}}if(approve)rememberApprovedVendors([{...editing,data:d,state}]);say(approve?(complete?'Onay kaydedildi. Bilgisayar aktarım durumu eşitlemede kontrol edilir.':'Bu KDV kaydı onaylandı. Diğer KDV kartını da kontrol edip onaylayın.'):'Taslak kaydedildi.');await leaveEditor({...editing,data:d,state});void sync().catch(e=>say(e.message,true));}
 function alphabetic(items){return items.slice().sort((a,b)=>String(a.name||'').trim().normalize('NFC').localeCompare(String(b.name||'').trim().normalize('NFC'),'tr',{sensitivity:'base',numeric:true})||String(a.vkn||a.id||'').localeCompare(String(b.vkn||b.id||'')));}
 function rememberApprovedVendors(records){
  const l=localCat(),digits=v=>String(v||'').replace(/\D/g,''),known=new Set([...catalog.vendors,...l.vendors].map(v=>digits(v.vkn)));let count=0;const seen=new Set();
  for(const r of [...records].sort((a,b)=>String(b.data?.vendor_confirmed_at||b.updated_at||b.created||'').localeCompare(String(a.data?.vendor_confirmed_at||a.updated_at||a.created||'')))){const d=r.data||{},vkn=digits(d.vkn),name=String(d.aciklama||'').replace(/\s+/g,' ').trim();
  if(isVendorDeleted(vkn)||r.deleted||r.state!=='approved'||d.is_z_report||!/^\d{10,11}$/.test(vkn)||!name||/^(Z RAPORU|PERAKENDE SATIŞ FİŞİ|GİDER PUSULASI)$/i.test(name))continue;
- if(seen.has(vkn))continue;seen.add(vkn);const existing=l.vendors.find(v=>digits(v.vkn)===vkn),stamp=d.vendor_confirmed_at||r.updated_at||r.created||'';const current=catalog.vendors.find(v=>digits(v.vkn)===vkn);if(existing&&existing.confirmedAt&&stamp<=existing.confirmedAt)continue;if(current?.name===name&&!existing)continue;if(existing){if(existing.name===name)continue;Object.assign(existing,{name:normalizeTitle(name),autoPending:true,confirmedAt:stamp});}else l.vendors.push({vkn,name:normalizeTitle(name),autoPending:true,confirmedAt:stamp});known.add(vkn);count++;
+ if(seen.has(vkn)||known.has(vkn))continue;seen.add(vkn);const existing=l.vendors.find(v=>digits(v.vkn)===vkn),stamp=d.vendor_confirmed_at||r.updated_at||r.created||'';const current=catalog.vendors.find(v=>digits(v.vkn)===vkn);if(existing&&existing.confirmedAt&&stamp<=existing.confirmedAt)continue;if(current?.name===name&&!existing)continue;if(existing){if(existing.name===name)continue;Object.assign(existing,{name:normalizeTitle(name),autoPending:true,confirmedAt:stamp});}else l.vendors.push({vkn,name:normalizeTitle(name),autoPending:true,confirmedAt:stamp});known.add(vkn);count++;
  }if(count){saveLocal(l);catalog=mergeLocal(catalog);}return count;
 }
 async function sendRememberedVendors(){
  const pending=localCat().vendors.filter(v=>v.autoPending&&!isVendorDeleted(v.vkn));if(!pending.length)return;
  try{const fresh=await (await api('/api/catalog')).json();const known=new Set((fresh.vendors||[]).map(v=>String(v.vkn).replace(/\D/g,'')));
- for(const v of pending){await jsonApi('/api/vendors',{vkn:v.vkn,name:v.name},'POST');known.add(v.vkn);const l=localCat();const saved=l.vendors.find(x=>x.vkn===v.vkn);if(saved&&saved.name===v.name){saved.autoPending=false;saveLocal(l);}}
+ for(const v of pending){if(!known.has(v.vkn))await jsonApi('/api/vendors',{vkn:v.vkn,name:v.name,automatic:true},'POST');known.add(v.vkn);const l=localCat();const saved=l.vendors.find(x=>x.vkn===v.vkn);if(saved&&saved.name===v.name){saved.autoPending=false;saveLocal(l);}}
  }catch(e){console.warn('Cari yerelde korundu; sonraki eşitlemede tekrar denenecek.');}
 }
+function recoverParty(d,kind){
+ let out={...d,invoice_type:invoiceType(d),aciklama:normalizeTitle(d.aciklama),kind:kind||d.kind};
+ if(!out.review_ack&&out.party_blocks?.length)out=applyPartyBlocks(out,out.party_blocks);
+ if(!out.review_ack&&out.ocr&&/^(?:İRSALİYE YERİNE|IRSALIYE YERINE|FATURA DETAYI)/i.test(out.aciklama)){out.aciklama=parseDraft(out.ocr,out.kind).aciklama;}
+ if(!out.review_ack&&out.ocr&&!vatBalanced(out)){const repaired=parseDraft(out.ocr,out.kind,out.qr_raw?[out.qr_raw]:[]);if(repaired.evrak_no===out.evrak_no&&Math.abs(Number(repaired.toplam)-Number(out.toplam))<.005&&vatBalanced(repaired)){out.kalemler=repaired.kalemler;out.qr_warnings=repaired.qr_warnings;out.tax_evidence=repaired.tax_evidence||'Metindeki KDV ve toplam yeniden doğrulandı.';}}
+ if(!out.review_ack){if(!vatBalanced(out)&&out.qr_raw){const repaired=parseQr(out.qr_raw,out.kind);if(repaired&&vatBalanced(repaired)&&repaired.evrak_no===out.evrak_no&&Math.abs(Number(repaired.toplam)-Number(out.toplam))<.005)out={...out,kalemler:repaired.kalemler,qr_warnings:repaired.qr_warnings,amount_repaired:true};}out=resolveVendor(out);}
+ if(out.ocr&&isReturn(out)&&!d.invoice_type&&!out.review_ack){const corrected=parseDraft(out.ocr,out.kind);out.aciklama=corrected.aciklama;out.vkn=corrected.vkn;}
+ if(out.is_invoice&&out.ocr&&(!String(out.aciklama||'').trim()||!out.invoice_scenario)){
+  const parsed=parseDraft(out.ocr,out.kind);
+  if(!String(out.aciklama||'').trim()&&parsed.aciklama)out.aciklama=parsed.aciklama;
+  if(!out.invoice_scenario&&parsed.invoice_scenario)out.invoice_scenario=parsed.invoice_scenario;
+ }
+ return out;
+}
+function documentDate(r){const v=String(r.data.evrak_tarihi||'');const m=v.match(/^(\d{2})[.\/-](\d{2})[.\/-](\d{4})$/);return m?m[3]+'-'+m[2]+'-'+m[1]:/^\d{4}-\d{2}-\d{2}$/.test(v)?v:'';}
+function compareDocuments(a,b){const sorting=$('documentSort').value;if(sorting==='amountAsc'||sorting==='amountDesc'){const x=money(a.data.toplam),y=money(b.data.toplam);if(!Number.isFinite(x)||!Number.isFinite(y)){if(Number.isFinite(x)!==Number.isFinite(y))return Number.isFinite(x)?-1:1;}else if(x!==y)return sorting==='amountAsc'?x-y:y-x;}const dates=documentDate(b).localeCompare(documentDate(a));return ($('documentSort').value==='type'?typeRank(a.data)-typeRank(b.data)||dates:$('documentSort').value==='az'?String(a.data.aciklama||'').localeCompare(String(b.data.aciklama||''),'tr')||dates:dates)||String(a.data.evrak_no||'').localeCompare(String(b.data.evrak_no||''),'tr');}
 function resolveVendor(d){return matchVendor(d,catalog.vendors);}
 async function qrSummary(d){
  const canvas=document.createElement('canvas');canvas.width=1100;canvas.height=1500;const c=canvas.getContext('2d');c.fillStyle='#fff';c.fillRect(0,0,1100,1500);c.fillStyle='#163248';c.font='bold 35px sans-serif';c.fillText('KAREKODDAN OKUNAN BELGE BİLGİLERİ',45,70);c.font='22px sans-serif';c.fillText('Bu özet, asıl faturanın fotoğrafı değildir.',45,115);
@@ -110,8 +133,10 @@ const handleNativeEvent=event=>caught(async()=>{const ctx=JSON.parse(localStorag
  if(event.type==='image'){processingCards.delete(event.requestId);let dupHit=false;if(!ctx)throw Error('Çekimin mükellef seçimi bulunamadı; fotoğraf cihazda korundu.');const id=event.filename.replace('.jpg','');const old=(await all()).find(x=>x.id===id);if(!old){const bytes=Uint8Array.from(atob(event.base64),c=>c.charCodeAt(0));const blob=new Blob([bytes],{type:'image/jpeg'});let data={...reconcileVat(resolveVendor(parseDraft(event.text,ctx.kind,event.qr||[]))),app_version:event.appVersion||'unknown',qr_candidates:event.qr||[]};const ih=await dHash(blob).catch(()=>'');assignMonth(data,ctx);let dup=await findDup(data,ctx,ih);if(!dup){processingCards.set(event.requestId,{title:data.aciklama||'KDV ve ünvan tamamlanıyor…',data});await render();data=reconcileVat(excludeAutomaticZero(resolveVendor(await aiAssist(blob,data,ctx.kind,false))));assignMonth(data,ctx);dup=await findDup(data,ctx,ih);}if(dup){dupHit=true;series.dup++;dupNotice(data,{id,ctx,data,blob,filename:event.filename,ih});}else{await put({id,...ctx,data,orig:snap(data),state:'draft',image:blob,filename:event.filename,ihash:ih});series.n++;}}processingCards.delete(event.requestId);Native.acknowledge(event.filename);batchQueue=batchQueue.filter(q=>q.filename!=='q-'+event.filename);renderBatch();await render();if(!dupHit){updSeries();say(series.active?'Seri çekim: '+series.n+' belge eklendi.':'Fotoğraf cihazda kaydedildi; okunan bilgileri kontrol edin.');}}
 })();
 let nativeEvents=Promise.resolve();window.nativeEvent=event=>{nativeEvents=nativeEvents.then(()=>handleNativeEvent(event)).catch(e=>say(e.message,true));return nativeEvents;};
-async function sync(quiet){if(batchRunning)return;if(busy){syncAgain=true;return;}busy=true;$('refresh').disabled=true;try{rememberApprovedVendors([...(await all()),...remote]);if(configured()){let failed=0,lastErr;for(const r of (await all()).sort((a,b)=>Number(b.state==='approved')-Number(a.state==='approved'))){if(r.deleted||r.syncConflict)continue;try{if(String(r.client).startsWith('local-'))throw Error('«'+clientName(r.client)+'» mükellefi yalnız telefonda; ofise tanıtılana kadar gönderilemez.');if(r.syncTarget){await jsonApi('/api/documents/'+r.syncTarget,{revision:r.syncRevision,data:r.data,state:r.state},'PATCH');}else{const form=new FormData();form.append('image',r.image,r.filename||r.id+'.jpg');form.append('document',JSON.stringify({id:r.id,client:r.client,kind:r.kind,data:r.data}));const result=await (await api('/api/documents',{method:'POST',body:form})).json();if(!result.duplicate||(result.id===r.id&&result.revision===1)){if(r.state==='approved'||result.duplicate)await jsonApi('/api/documents/'+result.id,{revision:result.revision,data:r.data,state:r.state},'PATCH');}else{const saved=await (await api('/api/documents/'+result.id)).json();if(!sameDocument(r,saved)){await markConflict(r,result.id,saved);continue;}}}const latest=(await all()).find(x=>x.id===r.id);if(latest&&latest.state===r.state&&JSON.stringify(latest.data)===JSON.stringify(r.data))await del(r.id);else if(latest)syncAgain=true;}catch(e){if(e.status===409){await markConflict(r,r.syncTarget||r.id);continue;}failed++;lastErr=e;}}if(failed&&!(quiet&&lastErr?.network))say(failed+' belge gönderilemedi: '+(lastErr.message||'bağlantıyı kontrol edin'),true);try{catalog=await (await api('/api/catalog')).json();}catch(e){if(e.network){if(!quiet)say(e.message,true);await render();return;}throw e;}localStorage.setItem('catalog',JSON.stringify(catalog));catalog=mergeLocal(catalog);renderClients();const fresh=[];let offset=0;try{do{const p=await (await api('/api/documents?offset='+offset)).json();fresh.push(...p.items);offset=p.next;}while(offset!==null);remote=fresh;}catch(e){if(!e.network)throw e;}localStorage.setItem('remote',JSON.stringify(remote));rememberApprovedVendors([...(await all()),...remote]);await sendRememberedVendors();}await render();}finally{busy=false;$('refresh').disabled=false;if(syncAgain){syncAgain=false;queueMicrotask(()=>sync(true).catch(e=>say(e.message,true)));}}}
+let syncPauseRequested=false;
+async function sync(quiet){if(batchRunning||syncPauseRequested)return;if(busy){syncAgain=true;return;}busy=true;$('refresh').disabled=true;try{rememberApprovedVendors([...(await all()),...remote]);if(configured()){let failed=0,lastErr;for(const r of (await all()).sort((a,b)=>Number(b.state==='approved')-Number(a.state==='approved'))){if(syncPauseRequested)break;if(r.deleted||r.syncConflict||isPurged(r.id))continue;try{if(String(r.client).startsWith('local-'))throw Error('«'+clientName(r.client)+'» mükellefi yalnız telefonda; ofise tanıtılana kadar gönderilemez.');if(r.syncTarget){await jsonApi('/api/documents/'+r.syncTarget,{revision:r.syncRevision,data:r.data,state:r.state},'PATCH');}else{const form=new FormData();form.append('image',r.image,r.filename||r.id+'.jpg');form.append('document',JSON.stringify({id:r.id,client:r.client,kind:r.kind,data:r.data}));const result=await (await api('/api/documents',{method:'POST',body:form})).json();if(!result.duplicate||(result.id===r.id&&result.revision===1)){if(r.state==='approved'||result.duplicate)await jsonApi('/api/documents/'+result.id,{revision:result.revision,data:r.data,state:r.state},'PATCH');}else{const saved=await (await api('/api/documents/'+result.id)).json();if(!sameDocument(r,saved)){await markConflict(r,result.id,saved);continue;}}}const latest=(await all()).find(x=>x.id===r.id);if(latest&&latest.state===r.state&&JSON.stringify(latest.data)===JSON.stringify(r.data))await del(r.id);else if(latest)syncAgain=true;}catch(e){if(e.status===409){await markConflict(r,r.syncTarget||r.id);continue;}failed++;lastErr=e;}}if(syncPauseRequested)return;if(failed&&!(quiet&&lastErr?.network))say(failed+' belge gönderilemedi: '+(lastErr.message||'bağlantıyı kontrol edin'),true);try{catalog=await (await api('/api/catalog')).json();}catch(e){if(e.network){if(!quiet)say(e.message,true);await render();return;}throw e;}localStorage.setItem('catalog',JSON.stringify(catalog));catalog=mergeLocal(catalog);renderClients();const fresh=[];let offset=0;try{do{const p=await (await api('/api/documents?offset='+offset)).json();if(syncPauseRequested)return;fresh.push(...p.items);offset=p.next;}while(offset!==null);remote=fresh;}catch(e){if(!e.network)throw e;}localStorage.setItem('remote',JSON.stringify(remote));rememberApprovedVendors([...(await all()),...remote]);await sendRememberedVendors();}await render();}finally{busy=false;$('refresh').disabled=false;if(syncAgain&&!syncPauseRequested){syncAgain=false;queueMicrotask(()=>sync(true).catch(e=>say(e.message,true)));}}}
 $('completeQr').onclick=caught(()=>capture('qr',editing));
+$('documentSort').onchange=()=>render();
 $('showDeleted').onchange=()=>{selected.clear();render();};
 $('deleteDoc').onclick=caught(async()=>{
  if(busy)throw Error('Gönderim sürüyor; tamamlanınca tekrar deneyin.');
@@ -124,17 +149,28 @@ $('confirmDelete').onclick=caught(async()=>{
  let count=0;try{for(const r of pendingDelete){await deleteRecord(r);selected.delete(r.id);count++;}}finally{localStorage.setItem('remote',JSON.stringify(remote));page('home');await render();say(count+' belge kaldırıldı. Onaylı kayıtlar ofiste korundu; taslaklar Silinenler bölümünde.');}
 });
 const selPool=()=>{const d=$('showDeleted').checked;return shown.filter(r=>d?r.deleted:!r.deleted);};
-function updateSelection(){const d=$('showDeleted').checked,pool=selPool();$('selectAllTxt').textContent='Tümünü seç';$('deleteSelected').textContent=(d?'Kalıcı sil (':'Seçilenleri sil (')+selected.size+')';$('deleteSelected').disabled=!selected.size;$('restoreSelected').hidden=!d;$('restoreSelected').textContent='Geri yükle ('+selected.size+')';$('restoreSelected').disabled=!selected.size;$('selectAll').checked=pool.length>0&&pool.every(r=>selected.has(r.id));}
+function updateSelection(){const d=$('showDeleted').checked,pool=selPool();$('selectAllTxt').textContent='Tümünü seç';$('deleteSelected').textContent=(d?'Kalıcı sil (':'Seçilenleri sil (')+selected.size+')';$('deleteSelected').disabled=!selected.size;if($('approveSelected')){$('approveSelected').disabled=!selected.size;$('approveSelected').hidden=d;}$('restoreSelected').hidden=!d;$('restoreSelected').textContent='Geri yükle ('+selected.size+')';$('restoreSelected').disabled=!selected.size;$('selectAll').checked=pool.length>0&&pool.every(r=>selected.has(r.id));}
 $('selectDocs').onclick=()=>{selecting=!selecting;selected.clear();$('selectDocs').textContent=selecting?'Vazgeç':'Seç';render();};
 $('selectAll').onchange=()=>{selected=new Set($('selectAll').checked?selPool().map(r=>r.id):[]);render();};
-$('deleteSelected').onclick=caught(async()=>{if(busy)throw Error('Gönderim sürüyor; tamamlanınca tekrar deneyin.');pendingDelete=shown.filter(r=>selected.has(r.id));if(!pendingDelete.length)return;if($('showDeleted').checked){$('purgeText').textContent=pendingDelete.length+' belgenin silinenler kaydı kaldırılacak. Kurtarma için görüntü dosyaları diskte korunur. Telefon değişiklikleri Telefonla eşitle düğmesiyle gönderilir.';$('purgeConfirm').showModal();}else $('deleteConfirm').showModal();});
+$('deleteSelected').onclick=caught(async()=>{if(busy&&!$('showDeleted').checked)throw Error('Gönderim sürüyor; tamamlanınca tekrar deneyin.');pendingDelete=shown.filter(r=>selected.has(r.id));if(!pendingDelete.length)return;if($('showDeleted').checked){$('purgeText').textContent=pendingDelete.length+' belgenin silinenler kaydı kaldırılacak. Kurtarma için görüntü dosyaları diskte korunur. Telefon değişiklikleri Telefonla eşitle düğmesiyle gönderilir.';$('purgeConfirm').showModal();}else $('deleteConfirm').showModal();});
 $('cancelPurge').onclick=()=>$('purgeConfirm').close();
-$('confirmPurge').onclick=caught(async()=>{$('purgeConfirm').close();if(busy)throw Error('Gönderim sürüyor; tamamlanınca tekrar deneyin.');
- const localOnly=pendingDelete.filter(r=>r.image&&!remote.some(x=>x.id===r.id)),server=pendingDelete.filter(r=>!localOnly.includes(r));let n=0,skipped=0;
- if(server.length&&!online())throw Error('Sunucudaki belgeleri kalıcı silmek için internet gerekir.');
- for(const r of localOnly){await del(r.id);n++;}
- for(let i=0;i<server.length;i+=100){const ids=server.slice(i,i+100).map(r=>r.id),res=await jsonApi('/api/documents/purge',{ids},'POST').catch(e=>{throw fixErr(e);});skipped+=(res.skipped||[]).length;const gone=ids.filter(id=>!(res.skipped||[]).includes(id));n+=gone.length;remote=remote.filter(x=>!gone.includes(x.id));for(const id of gone)await del(id).catch(()=>{});}
- selected.clear();localStorage.setItem('remote',JSON.stringify(remote));await render();say(n+' belge kalıcı olarak silindi'+(skipped?', '+skipped+' belge silinemedi (onaylı olabilir).':'.'),!!skipped);});
+async function pauseSyncForPurge(){
+ syncPauseRequested=true;syncAgain=false;
+ if(busy)say('Silme için eşitleme sıradaki belgeye geçmeden durduruluyor…');
+ while(busy)await new Promise(ok=>setTimeout(ok,25));
+}
+function deleteLocalMany(ids){return new Promise((ok,bad)=>{const tx=db.transaction('queue','readwrite'),q=tx.objectStore('queue');for(const id of ids)q.delete(id);tx.oncomplete=ok;tx.onerror=()=>bad(tx.error);});}
+$('confirmPurge').onclick=caught(async()=>{
+ $('purgeConfirm').close();if(desktopDeleting)throw Error('Silme işlemi zaten sürüyor.');desktopDeleting=true;
+ try{await pauseSyncForPurge();
+  const current=await all(),wanted=new Set(pendingDelete.map(r=>r.id));
+  const localOnly=current.filter(r=>wanted.has(r.id)&&r.deleted&&!remote.some(x=>x.id===r.id));
+  const server=pendingDelete.filter(r=>!localOnly.some(x=>x.id===r.id)&&r.deleted);let n=0,skipped=0;
+  await deleteLocalMany(localOnly.map(r=>r.id));for(const r of localOnly){purgedAdd(r.id);selected.delete(r.id);}n+=localOnly.length;
+  for(let i=0;i<server.length;i+=500){const ids=server.slice(i,i+500).map(r=>r.id),res=await jsonApi('/api/documents/purge',{ids},'POST');const blocked=new Set(res.skipped||[]),gone=ids.filter(id=>!blocked.has(id));skipped+=blocked.size;await deleteLocalMany(gone);const removed=new Set(gone);remote=remote.filter(r=>!removed.has(r.id));for(const id of gone){purgedAdd(id);selected.delete(id);}n+=gone.length;}
+  localStorage.setItem('remote',JSON.stringify(remote));await render();say(n+' belge kalıcı olarak silindi'+(skipped?' · '+skipped+' kayıt silinemedi.':'.'),!!skipped);
+ }finally{syncPauseRequested=false;syncAgain=false;desktopDeleting=false;}
+});
 $('restoreSelected').onclick=caught(async()=>{if(busy)throw Error('Gönderim sürüyor; tamamlanınca tekrar deneyin.');const rows=shown.filter(r=>selected.has(r.id));let n=0;try{for(const r of rows){const server=remote.find(x=>x.id===r.id)||(!r.image?r:null);if(server){const res=await jsonApi('/api/documents/'+r.id+'/restore',{revision:server.revision},'POST');remote=remote.map(x=>x.id===r.id?{...x,deleted:false,revision:res.revision}:x);}else await put({...r,deleted:false});n++;}}finally{selected.clear();localStorage.setItem('remote',JSON.stringify(remote));await render();}say(n+' belge geri yüklendi.');});
 async function deleteRecord(record){
  if(record.state==='approved'&&!window.FisDesktop){if(record.image)throw Error('Belge henüz gönderilmedi. Önce eşitleyin; fotoğraf korundu.');localStorage.setItem(phoneHiddenKey(),JSON.stringify([...new Set([...phoneHidden(),record.id])]));await lstore('readwrite',q=>q.delete(record.id));if(previewUrl){URL.revokeObjectURL(previewUrl);previewUrl=null;$('preview').removeAttribute('src');}return;}
@@ -161,7 +197,7 @@ $('reanalyze').onclick=caught(async()=>{
  say('Kaydedilmiş okuma yeniden analiz edildi. Değişiklikleri kontrol edip kaydedin.');
 });
 $('settingsBtn').onclick=()=>{page('settings');$('server').value=cfg.url||'';$('token').value=cfg.token||'';$('altServer').value=cfg.alt||'';};$('connect').onclick=caught(async()=>{const url=new URL($('server').value.trim());if(url.protocol!=='https:'||url.username||url.password||url.pathname!=='/'||url.search||url.hash)throw Error('HTTPS sunucu ana adresini girin.');const token=$('token').value.trim();if(token.length<32)throw Error('Bağlantı anahtarı eksik.');let alt='';const altRaw=$('altServer').value.trim();if(altRaw){const au=new URL(altRaw);if(au.protocol!=='https:'||au.username||au.password||au.pathname!=='/'||au.search||au.hash)throw Error('Yedek adres de HTTPS ana adresi olmalı.');alt=au.origin;}const old=cfg;cfg={url:url.origin,token,...(alt?{alt}:{})};try{catalog=await (await api('/api/catalog')).json();}catch(e){cfg=old;throw e;}localStorage.setItem('connection',JSON.stringify(cfg));localStorage.setItem('catalog',JSON.stringify(catalog));catalog=mergeLocal(catalog);renderClients();page('home');say('Ofise bağlandı.');await sync();});
-$('pairQr').onclick=()=>{if(window.Native)Native.capture('qr','pair');else say('QR eşleştirme Android uygulamasında kullanılabilir.');};$('expense').onclick=()=>toggle('gider');$('income').onclick=()=>toggle('gelir');$('client').onchange=()=>{localStorage.setItem('client',$('client').value);loadMonth();render();};for(const b of document.querySelectorAll('[data-capture]'))b.onclick=caught(()=>capture(b.dataset.capture));for(const b of document.querySelectorAll('.back'))b.onclick=()=>{page('home');render();};window.goHome=()=>{for(const id of ['bulkSheet','monthSheet','clientSheet'])if($(id).open){$(id).close();return;}if($('scanEditor').open){$('scanEditor').close();return;}if($('imageViewer').open){$('imageViewer').close();return;}page('home');};$('refresh').onclick=caught(sync);$('addVat').onclick=()=>addVat();$('saveDraft').onclick=caught(()=>save(false));$('editForm').onsubmit=caught(async e=>{e.preventDefault();await save(true);});$('docType').onchange=()=>{if($('docType').value==='z'){$('vkn').value='';$('title').value='Z RAPORU';}};
+$('pairQr').onclick=()=>{if(window.Native)Native.capture('qr','pair');else say('QR eşleştirme Android uygulamasında kullanılabilir.');};$('expense').onclick=()=>toggle('gider');$('income').onclick=()=>toggle('gelir');$('client').onchange=()=>{localStorage.setItem('client',$('client').value);loadMonth();render();};for(const b of document.querySelectorAll('[data-capture]'))b.onclick=caught(()=>capture(b.dataset.capture));for(const b of document.querySelectorAll('.back'))b.onclick=caught(()=>leaveEditor());window.goHome=()=>{for(const id of ['bulkSheet','monthSheet','clientSheet'])if($(id).open){$(id).close();return;}if($('scanEditor').open){$('scanEditor').close();return;}if($('imageViewer').open){$('imageViewer').close();return;}void leaveEditor();};$('refresh').onclick=caught(sync);$('addVat').onclick=()=>addVat();$('saveDraft').onclick=caught(()=>save(false));$('editForm').onsubmit=caught(async e=>{e.preventDefault();await save(true);});$('docType').onchange=()=>{if($('docType').value==='z'){$('vkn').value='';$('title').value='Z RAPORU';}};
 function vendors(){const q=$('vendorSearch').value.toLocaleLowerCase('tr-TR');$('vendorList').replaceChildren();const list=alphabetic(catalog.vendors).filter(x=>(x.name+' '+x.vkn).toLocaleLowerCase('tr-TR').includes(q));for(const v of list.slice(0,200)){const b=document.createElement('button');b.className='vrow';const d=document.createElement('div');d.textContent=v.name;const sm=document.createElement('small');sm.textContent=String(v.vkn);d.append(sm);b.append(d);if(v.local||v.edited){const t=document.createElement('i');t.className='tagl';t.textContent=v.local?'Yalnız telefonda':'Düzenlendi';b.append(t);}b.onclick=()=>openEntry('vendor',v);$('vendorList').append(b);}const p=document.createElement('p');p.className='muted';p.textContent=list.length>200?list.length+' kayıttan ilk 200 gösteriliyor. Aramayı daraltın.':(list.length?'':'Kayıt yok. Sağ üstten yeni cari ekleyebilirsiniz.');if(p.textContent)$('vendorList').append(p);renderDeletedVendorButton();}$('vendorsBtn').onclick=()=>{page('vendors');vendors();};$('vendorSearch').oninput=vendors;
 $('fallbackFiles').onchange=caught(async()=>{const ctx=JSON.parse(localStorage.getItem('capture:'+$('fallbackFiles').dataset.requestId));for(const file of $('fallbackFiles').files){if(file.size>10*1024*1024)throw Error('Fotoğraf 10 MB sınırını aşıyor.');await put({id:uuid(),...ctx,data:assignMonth(parseDraft('',ctx.kind),ctx),state:'draft',image:file,filename:file.name});}$('fallbackFiles').value='';await sync();});
 remote=JSON.parse(localStorage.getItem('remote')||'[]');renderClients();await render();if(window.Native){Native.recover();Native.recoverQueue?.();}if(configured())caught(sync)();else page('settings');window.addEventListener('online',caught(sync));
@@ -174,7 +210,7 @@ const vp=$('zoomViewport');
 vp.onpointerdown=e=>{points.set(e.pointerId,{x:e.clientX,y:e.clientY});vp.setPointerCapture(e.pointerId);gesture=null;};
 vp.onpointermove=e=>{if(!points.has(e.pointerId))return;const previous=points.get(e.pointerId);points.set(e.pointerId,{x:e.clientX,y:e.clientY});if(points.size===2){const [a,b]=[...points.values()],distance=Math.hypot(a.x-b.x,a.y-b.y);if(gesture){const rect=vp.getBoundingClientRect();setZoom(zoom*distance/gesture,{x:(a.x+b.x)/2-rect.left,y:(a.y+b.y)/2-rect.top});}gesture=distance;}else{vp.scrollLeft-=e.clientX-previous.x;vp.scrollTop-=e.clientY-previous.y;}};
 vp.onpointerup=vp.onpointercancel=e=>{points.delete(e.pointerId);gesture=null;};
-vp.ondblclick=()=>setZoom(zoom>1?1:3);vp.onwheel=e=>{e.preventDefault();setZoom(zoom*(e.deltaY<0?1.15:1/1.15));};
+vp.ondblclick=()=>setZoom(zoom>1?1:3);vp.onwheel=e=>{if(!e.ctrlKey)return;e.preventDefault();setZoom(zoom*(e.deltaY<0?1.15:1/1.15));};
 
 for(const b of document.querySelectorAll('[data-tab]'))b.onclick=()=>{const t=b.dataset.tab;if(t==='home'){page('home');render();}else if(t==='vendors'){page('vendors');vendors();}else if(t==='clients'){page('clients');clientsView();}};
 
@@ -281,9 +317,9 @@ function docIssues(d){
 }
 async function aiFetch(path,key,body,ms=30000){
  let r;
- try{r=await fetch(AIH+path,{method:body?'POST':'GET',headers:{'x-goog-api-key':key,...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(ms)});}
+ try{r=await fetch(AIH+path,{method:body?'POST':'GET',headers:{'x-goog-api-key':key,...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined,signal:desktopReading&&importAbortController?AbortSignal.any([AbortSignal.timeout(ms),importAbortController.signal]):AbortSignal.timeout(ms)});}
  catch(e){throw Error(e?.name==='TimeoutError'||e?.name==='AbortError'?'Gemini yanıtı zaman sınırını aştı. Tekrar deneyin; belge korunuyor.':'Gemini sunucusuna bağlantı kurulamadı. İnterneti kontrol edip tekrar deneyin; belge korunuyor.');}
- if(!r.ok){let m='';try{m=(await r.json()).error?.message||'';}catch{}const e=Error(r.status===429?'Yapay zeka günlük/dakikalık ücretsiz sınıra ulaştı. Biraz sonra deneyin.':r.status===400&&/API key/i.test(m)||r.status===403?'Gemini anahtarı geçersiz ya da yetkisiz.':r.status===404?'Seçili Gemini modeli artık kullanılamıyor. Bağlantı ayarlarında model alanını boş bırakıp yeniden deneyin.':'Yapay zeka hatası ('+r.status+'): '+m.slice(0,140));e.status=r.status;throw e;}
+ if(!r.ok){let m='';try{m=(await r.json()).error?.message||'';}catch{}const e=Error(r.status===429?'Yapay zeka istek/kota sınırına ulaştı. Otomatik tekrarlar bekletildi; yerel okuma devam ediyor.':r.status===400&&/API key/i.test(m)||r.status===403?'Gemini anahtarı geçersiz ya da yetkisiz.':r.status===404?'Seçili Gemini modeli artık kullanılamıyor. Bağlantı ayarlarında model alanını boş bırakıp yeniden deneyin.':'Yapay zeka hatası ('+r.status+'): '+m.slice(0,140));e.status=r.status;throw e;}
  return r.json();
 }
 let modelCache=null;
@@ -303,7 +339,7 @@ function aiPrompt(kind){
  return `Bu bir Türkiye'de düzenlenmiş fiş, fatura veya Z raporu fotoğrafı. Yalnızca görselde açıkça okuyabildiğin bilgileri ver; okuyamadığını uydurma, boş bırak.
 Belge kategorisi: ${kind==='gelir'?'GELİR':'GİDER'}.
 Kurallar:
-- unvan: ${kind==='gelir'?'Fatura ise ALICI (SAYIN) ünvanı; fiş/Z raporu ise belgeyi düzenleyen işyeri.':'Belgeyi düzenleyen (satıcı) işyerinin resmî ünvanı.'} Şirketse tam ticari ünvan (A.Ş., LTD. ŞTİ. dahil). Şahıs işletmesiyse (işletme adının altında kişi adı yazıyorsa) kişinin ad ve soyadı. ÜRÜN, hizmet, şube, adres, kasiyer adını ASLA ünvan yazma.
+- unvan: ${kind==='gelir'?'Fatura ise ALICI (SAYIN) ünvanı; fiş/Z raporu ise belgeyi düzenleyen işyeri.':'Belgeyi düzenleyen (satıcı) işyerinin resmî ünvanı.'} Şirketse tam ticari ünvan (A.Ş., LTD. ŞTİ. dahil). Şahıs işletmesiyse (işletme adının altında kişi adı yazıyorsa) kişinin ad ve soyadı. Logo, reklam ve sloganları (örneğin çözüm ortağınız) asla ünvana ekleme. SAYIN bölümünün sağındaki metinler alıcı ünvanına ait değildir. ÜRÜN, hizmet, şube, adres, kasiyer adını ASLA ünvan yazma.
 - vkn_tckn: yalnız rakam, 10 (VKN) ya da 11 (TCKN) hane. ${kind==='gelir'?'Faturada yalnız ALICININ numarasını yaz; Z raporunda boş bırak':'Yalnız SATICININ numarasını yaz; alıcı/müşteri numarasını yazma'}.
 - tarih: GG.AA.YYYY. belge_no: fatura/fiş numarası (Z raporunda Z no). Sipariş, irsaliye, kasa, sicil numaralarını yazma.
 - toplam: KDV dahil ödenecek genel toplam (sayı, nokta ondalık). Para üstü, ara toplam, indirim değildir.
@@ -312,6 +348,7 @@ Kurallar:
 Yalnızca şu JSON'u döndür: {"belge_turu":"","unvan":"","vkn_tckn":"","tarih":"","belge_no":"","toplam":0,"kdv":[{"oran":0,"kdv_dahil_tutar":0}]}`;
 }
 function mergeAi(d,a,force){
+ if(isWithholding(d)||isReturn(d))return {...d,ai_note:'İade/tevkifat alanları otomatik yeniden hesaplanmadı; belge üzerinden kontrol edin.'};
  const out={...d};if(out.zero_excluded){out.toplam=out.original_total;out.kalemler=[...(out.kalemler||[]),vatLine(0,out.zero_excluded)];delete out.zero_excluded;}const q=!!out.qr_raw,dateOk=x=>/^\d{2}\.\d{2}\.\d{4}$/.test(x||'');
  if(a.belge_turu==='z_raporu'){out.is_z_report=true;out.is_invoice=false;}else if(a.belge_turu==='fatura'&&!out.is_z_report)out.is_invoice=true;
  if(!out.is_z_report){
@@ -341,8 +378,11 @@ function mergeAi(d,a,force){
  }}
  out.ai_used=true;return excludeAutomaticZero(out);
 }
+let aiPause=null;
 async function aiAssist(blob,d,kind,force){
- const cfg=aiCfg();
+ if(isWithholding(d)||isReturn(d)){if(force)throw Error('İade/tevkifat tutarlarını belge üzerinden kontrol edin veya yeniden analiz düğmesini kullanın.');return d;}
+ const cfg=aiCfg();cfg.mode=['off','issues','always'].includes(cfg.mode)?cfg.mode:'issues';
+ if(!force&&aiPause?.key===cfg.key&&Date.now()<aiPause.until)return {...d,ai_note:aiPause.note};
  if(!cfg.key||(cfg.mode==='off'&&!force)||(!force&&cfg.mode==='issues'&&!docIssues(d))){if(force)throw Error('Önce Bağlantı ayarlarından Gemini anahtarını girin.');return d;}
  try{
   say('Yapay zeka okuyor…');
@@ -357,7 +397,7 @@ async function aiAssist(blob,d,kind,force){
    }catch(e){last=e;if(cfg.lastModel&&![429,401,403].includes(e.status)){const c2=aiCfg();delete c2.lastModel;localStorage.setItem('ai',JSON.stringify(c2));}if(e.status===429||e.status===401||e.status===403)break;}
   }
   throw last||Error('Yapay zeka yanıt vermedi.');
- }catch(e){if(force)throw e;say('Yapay zeka kullanılamadı, yerel okuma kullanıldı: '+e.message,true);return d;}
+ }catch(e){if([429,401,403,503].includes(e.status))aiPause={key:cfg.key,until:Date.now()+(e.status===503?120000:3600000),note:'Otomatik yapay zeka bekletildi; yerel okuma kullanılıyor.'};if(force)throw e;say('Yapay zeka kullanılamadı, yerel okuma kullanıldı: '+e.message,true);return {...d,ai_note:e.message};}
 }
 $('aiRead').onclick=caught(async()=>{
  if(editing.state==='approved')throw Error('Onaylı belgeyi değiştirmeden önce onayını kaldırın.');
@@ -379,7 +419,7 @@ function isPurged(id){if(!purgedCache){try{purgedCache=new Set(JSON.parse(localS
 function purgedAdd(id){isPurged(id);purgedCache.add(id);localStorage.setItem('purged',JSON.stringify([...purgedCache]));}
 function localCat(){let l={};try{l=JSON.parse(localStorage.getItem('local_catalog')||'{}');}catch{}return {vendors:l.vendors||[],clients:l.clients||[],vEdits:l.vEdits||{},cEdits:l.cEdits||{}};}
 function saveLocal(l){localStorage.setItem('local_catalog',JSON.stringify(l));}
-function mergeLocal(c){const l=localCat(),vendors=(c.vendors||[]).map(v=>l.vEdits[v.vkn]?{...v,...l.vEdits[v.vkn],edited:true,origVkn:v.vkn}:v);for(const v of l.vendors){const existing=vendors.find(x=>String(x.vkn)===String(v.vkn));if(!existing)vendors.push({...v,local:true});else if(v.autoPending||v.confirmedAt)Object.assign(existing,{name:v.name});}const clients=(c.clients||[]).map(x=>l.cEdits[x.id]?{...x,name:l.cEdits[x.id],edited:true}:x);for(const x of l.clients)if(!clients.some(y=>y.id===x.id))clients.push({...x,local:true});return {...c,vendors:alphabetic(vendors.filter(v=>!isVendorDeleted(v.vkn))),clients:alphabetic(clients)};}
+function mergeLocal(c){const l=localCat(),vendors=(c.vendors||[]).map(v=>l.vEdits[v.vkn]?{...v,...l.vEdits[v.vkn],edited:true,origVkn:v.vkn}:v);for(const v of l.vendors){const existing=vendors.find(x=>String(x.vkn)===String(v.vkn));if(!existing)vendors.push({...v,local:true});else if(v.manual&&!l.vEdits[v.vkn])Object.assign(existing,{name:v.name});}const clients=(c.clients||[]).map(x=>l.cEdits[x.id]?{...x,name:l.cEdits[x.id],edited:true}:x);for(const x of l.clients)if(!clients.some(y=>y.id===x.id))clients.push({...x,local:true});return {...c,vendors:alphabetic(vendors.filter(v=>!isVendorDeleted(v.vkn))),clients:alphabetic(clients)};}
 function refreshCatalog(){let raw={clients:[],vendors:[]};try{raw=JSON.parse(localStorage.getItem('catalog')||'')||raw;}catch{}catalog=mergeLocal(raw);renderClients();vendors();clientsView();resolveVendorsUi?.();}
 var resolveVendorsUi=null;
 let ENT=null,entWarned=false;
@@ -411,7 +451,7 @@ $('entrySave').onclick=caught(async()=>{
   else{try{await jsonApi('/api/clients/'+o.id,{name,profile:readProfile(),revision:o.revision},'PATCH');}catch(e){throw fixErr(e);}delete l.cEdits[o.id];saveLocal(l);}
   await pullCatalog();
  }
- if(isV)restoreDeletedVendor(vkn);$('entryDlg').close();refreshCatalog();say(online()&&!serverOld?'Kaydedildi ve ofise gönderildi.':'Kaydedildi (yalnız bu telefonda; bağlanınca eşitlemez).');
+ if(isV){restoreDeletedVendor(vkn);const saved=localCat();saved.vendors=saved.vendors.filter(v=>vendorKey(v.vkn)!==vkn);saved.vendors.push({vkn,name,manual:true});saved.vEdits[vkn]={vkn,name,manual:true};saveLocal(saved);}$('entryDlg').close();refreshCatalog();say(online()&&!serverOld?'Kaydedildi ve ofise gönderildi.':'Kaydedildi (yalnız bu telefonda; bağlanınca eşitlemez).');
 });
 $('entryDel').onclick=caught(async()=>{const o=ENT.obj,l=localCat(),isV=ENT.type==='vendor';if(isV){confirmVendorDelete(o);return;}if(o.local){if(isV)l.vendors=l.vendors.filter(v=>String(v.vkn)!==String(o.vkn));else l.clients=l.clients.filter(c=>c.id!==o.id);}else if(isV)delete l.vEdits[o.origVkn??o.vkn];else delete l.cEdits[o.id];saveLocal(l);$('entryDlg').close();refreshCatalog();say(o.local?'Silindi.':'Orijinal kayda dönüldü.');});
 function applyTheme(){const m=localStorage.getItem('theme')||'auto',d=m==='dark'||(m==='auto'&&matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.dataset.theme=d?'dark':'light';for(const b of document.querySelectorAll('#themeOpts [data-th]'))b.classList.toggle('on',b.dataset.th===m);$('themeCardSub').textContent={auto:'Otomatik',light:'Aydınlık',dark:'Karanlık'}[m];}
@@ -498,12 +538,12 @@ function pickerRows(){const q=$('pickerSearch').value.toLocaleLowerCase('tr-TR')
 $('clientPicker').onclick=()=>{$('pickerSearch').value='';pickerRows();$('clientSheet').showModal();fitClientSheet();$('closeClientSheet').focus({preventScroll:true});};$('pickerSearch').oninput=pickerRows;$('closeClientSheet').onclick=()=>$('clientSheet').close();$('pickerAdd').onclick=()=>{$('clientSheet').close();openEntry('client',null);};
 $('workMonth').onchange=()=>{if(!$('workMonth').value)return;localStorage.setItem(periodKey(),$('workMonth').value);selected.clear();render();};
 let profileDraft={},accountSide='gider';
-function openProfile(type,obj){$('profileFields').hidden=type!=='client';profileDraft=structuredClone(obj?.profile||{mode:'isletme',income_code:'ML',rates:{},income_rates:{},closing:'',income_closing:''});accountSide='gider';$('bookMode').value=profileDraft.mode||'isletme';$('incomeCode').value=profileDraft.income_code||'ML';drawAccounts();profileVisibility();}
-function keepAccounts(){const rates={...profileDraft[accountSide==='gelir'?'income_rates':'rates']};for(const row of $('rateAccounts').children){const v=[...row.querySelectorAll('input')].map(x=>x.value.trim());if(v.some(Boolean))rates[row.dataset.rate]=v;else delete rates[row.dataset.rate];}profileDraft[accountSide==='gelir'?'income_rates':'rates']=rates;profileDraft[accountSide==='gelir'?'income_closing':'closing']=$('closingAccount').value.trim();}
-function drawAccounts(){const inc=accountSide==='gelir';$('expenseAccounts').classList.toggle('active',!inc);$('incomeAccounts').classList.toggle('active',inc);$('rateAccounts').replaceChildren();for(const rate of [1,10,20]){const row=document.createElement('div');row.className='account-row';row.dataset.rate=rate;const h=document.createElement('b');h.textContent='%'+rate;row.append(h);const codes=profileDraft[inc?'income_rates':'rates']?.[rate]||['',''];for(let i=0;i<2;i++){const label=document.createElement('label');label.textContent=i?(inc?'Hesaplanan KDV':'İndirilecek KDV'):(inc?'Satış / matrah':'Gider / matrah');const input=document.createElement('input');input.value=codes[i];input.autocomplete='off';input.placeholder=i?'KDV hesap kodu':'Hesap kodu';input.disabled=rate===0&&i===1;if(input.disabled)input.value='';label.append(input);row.append(label);}$('rateAccounts').append(row);}$('closingAccount').value=profileDraft[inc?'income_closing':'closing']||'';}
+function openProfile(type,obj){specialAccountTab='normal';$('profileFields').hidden=type!=='client';profileDraft=structuredClone(obj?.profile||{mode:'isletme',income_code:'ML',rates:{},income_rates:{},closing:'',income_closing:''});accountSide='gider';$('clientTaxId').value=profileDraft.tax_id||'';$('bookMode').value=profileDraft.mode||'isletme';$('incomeCode').value=profileDraft.income_code||'ML';drawAccounts();profileVisibility();}
+function keepAccounts(){keepSpecialRules();const rates={...profileDraft[accountSide==='gelir'?'income_rates':'rates']};for(const row of $('rateAccounts').children){const v=[...row.querySelectorAll('input')].map(x=>x.value.trim());if(accountSide==='gelir'&&row.dataset.rate==='0'){profileDraft.income_zero_foreign=v[1];v[1]='';}if(v.some(Boolean))rates[row.dataset.rate]=v;else delete rates[row.dataset.rate];}profileDraft[accountSide==='gelir'?'income_rates':'rates']=rates;profileDraft[accountSide==='gelir'?'income_closing':'closing']=$('closingAccount').value.trim();}
+function drawAccounts(){$('entryDlg').dataset.accountSide=accountSide;const inc=accountSide==='gelir';$('expenseAccounts').classList.toggle('active',!inc);$('incomeAccounts').classList.toggle('active',inc);$('rateAccounts').replaceChildren();for(const rate of (inc?[0,1,10,20]:[1,10,20])){const row=document.createElement('div');row.className='account-row';row.dataset.rate=rate;const h=document.createElement('b');h.textContent='%'+rate;row.append(h);const codes=profileDraft[inc?'income_rates':'rates']?.[rate]||['',''];for(let i=0;i<2;i++){const label=document.createElement('label');label.textContent=inc&&rate===0?(i?'Yurtdışı %0 matrah (IHRACAT)':'Standart %0 matrah (yurtiçi)'):i?(inc?'Hesaplanan KDV':'İndirilecek KDV'):(inc?'Satış / matrah':'Gider / matrah');const input=document.createElement('input');input.value=inc&&rate===0&&i===1?(profileDraft.income_zero_foreign||''):codes[i];input.autocomplete='off';input.placeholder=inc&&rate===0&&i===1?'Boşsa standart %0 kullanılır':i?'KDV hesap kodu':'Hesap kodu';input.disabled=rate===0&&i===1&&!inc;if(input.disabled)input.value='';label.append(input);row.append(label);}$('rateAccounts').append(row);}$('closingAccount').value=profileDraft[inc?'income_closing':'closing']||'';drawSpecialRules();}
 function profileVisibility(){$('incomeCodeField').hidden=$('bookMode').value==='genel';$('accountFields').hidden=$('bookMode').value!=='genel';}
 $('bookMode').onchange=profileVisibility;for(const [id,side] of [['expenseAccounts','gider'],['incomeAccounts','gelir']])$(id).onclick=()=>{keepAccounts();accountSide=side;drawAccounts();};
-function readProfile(){keepAccounts();profileDraft.mode=$('bookMode').value;profileDraft.income_code=$('incomeCode').value;for(const field of ['rates','income_rates'])for(const [rate,codes] of Object.entries(profileDraft[field]||{})){if(!codes[0]||(rate!=='0'&&!codes[1]))throw Error('%'+rate+' için matrah ve KDV hesabını birlikte doldurun.');}return profileDraft;}
+function readProfile(){keepAccounts();profileDraft.return_direction_version=2;const taxId=$('clientTaxId').value.trim();if(taxId&&!/^\d{10,11}$/.test(taxId))throw Error('Mükellef VKN/TCKN’si 10 veya 11 rakam olmalı; boş bırakabilirsiniz.');profileDraft.tax_id=taxId;profileDraft.mode=$('bookMode').value;profileDraft.income_code=$('incomeCode').value;for(const field of ['rates','income_rates'])for(const [rate,codes] of Object.entries(profileDraft[field]||{})){if(!codes[0]||(rate!=='0'&&!codes[1]))throw Error('%'+rate+' için matrah ve KDV hesabını birlikte doldurun.');}return profileDraft;}
 loadMonth();updatePicker();render();
 
 // ===== v0.14.0 tasarım: dönem seçici, mükellef çipi, özet kartı =====
@@ -519,7 +559,7 @@ $('mToday').onclick=()=>pickMonth(currentMonth());$('mClose').onclick=()=>$('mon
 function updateStats(rows,local){const del=$('showDeleted').checked,live=rows.filter(r=>del||!r.deleted),total=live.reduce((a,r)=>a+(Number(r.data?.toplam)||0),0);
  $('statTotal').textContent=total.toLocaleString('tr-TR',{minimumFractionDigits:2,maximumFractionDigits:2})+' ₺';
  $('statLbl').textContent=del?'Silinen belgeler':($('monthLbl').dataset.full||'')+' · '+(kind==='gelir'?'Gelir':'Gider');
- $('statCnt').textContent=live.length+' belge';updateTaxCard(live);
+ $('statCnt').textContent=live.length+' belge';$('statTotal').title=live.some(r=>isReturn(r.data)||isWithholding(r.data))?'KDV dahil belge tutarları toplamıdır; net satış veya tahsilat tutarı değildir.':'';updateTaxCard(live);
  const pend=local.filter(r=>!r.deleted&&r.kind===kind&&(!$('client').value||r.client===$('client').value)).length;$('statPend').hidden=!pend||del;$('statPend').textContent=pend+' gönderilmedi';}
 monthLabel();
 
@@ -609,9 +649,9 @@ function panel(id,title){let d=$(id);if(!d){d=uiNode('dialog',null,'large-panel'
 function showPanel(d){if(!d.open)d.showModal();}
 function bars(host,items,formatter){const max=Math.max(1,...items.map(x=>x.value));for(const item of items){const row=uiNode('div',null,'chart-row'),label=uiNode('div',null,'chart-label');label.append(uiNode('span',item.label),uiNode('b',formatter(item.value)));const track=uiNode('div',null,'chart-track'),fill=uiNode('div',null,'chart-fill');fill.style.width=Math.max(0,item.value/max*100)+'%';track.append(fill);row.append(label,track);host.append(row);}}
 var taxRows;
-function updateTaxCard(rows){taxRows=rows;let box=$('taxSummary');if(!box){box=uiNode('div',null,'tax-summary');box.id='taxSummary';box.append(uiNode('small',''),uiNode('b',''));document.querySelector('.stat').append(box);const stat=document.querySelector('.stat');stat.tabIndex=0;stat.setAttribute('role','button');stat.setAttribute('aria-label','Tutar ve KDV dağılımını göster');stat.onclick=showTaxReport;stat.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();showTaxReport();}};}box.children[0].textContent=kind==='gelir'?'Hesaplanan KDV':'İndirilecek KDV';const total=rows.reduce((a,r)=>a+(r.data.kalemler||[]).reduce((n,l)=>n+(Number(l.kdv)||0),0),0);box.children[1].textContent=formatAmount(total)+' ₺';}
-function taxGroups(rows){const groups=new Map();for(const r of rows)for(const l of r.data.kalemler||[]){const rate=Number(l.oran);if(!Number.isFinite(rate))continue;const v=groups.get(rate)||{tax:0,gross:0,z:0};const k=Number(l.kdv)||0,g=(Number(l.matrah)||0)+k;v.tax+=k;v.gross+=g;if(r.data.is_z_report)v.z+=g;groups.set(rate,v);}return [...groups].sort((a,b)=>a[0]-b[0]);}
-function showTaxReport(){const rows=taxRows||[],d=panel('taxReport',kind==='gelir'?'Gelir ve hesaplanan KDV':'Gider ve indirilecek KDV');d.append(uiNode('p',clientName($('client').value)+' · '+$('workMonth').value,'muted'));const pending=rows.filter(r=>r.state!=='approved').length;d.append(uiNode('p',rows.length+' belge'+(pending?' · '+pending+' belge henüz onaylanmadı':' · Tümü onaylı'),'muted'));const groups=taxGroups(rows);d.append(uiNode('h3','KDV dahil belge tutarı'));bars(d,groups.map(([r,v])=>({label:'KDV %'+r,value:v.gross})),v=>formatAmount(v)+' ₺');d.append(uiNode('h3',kind==='gelir'?'Hesaplanan KDV':'İndirilecek KDV'));bars(d,groups.map(([r,v])=>({label:'KDV %'+r,value:v.tax})),v=>formatAmount(v)+' ₺');if(kind==='gelir'&&groups.some(([,v])=>v.z)){d.append(uiNode('h3','Z raporları · KDV dahil'));bars(d,groups.filter(([,v])=>v.z).map(([r,v])=>({label:'KDV %'+r,value:v.z})),v=>formatAmount(v)+' ₺');}if(!groups.length)d.append(uiNode('p','Bu dönemde KDV satırı bulunmuyor.'));showPanel(d);}
+function updateTaxCard(rows){taxRows=rows;let box=$('taxSummary');if(!box){box=uiNode('div',null,'tax-summary');box.id='taxSummary';box.append(uiNode('small',''),uiNode('b',''));document.querySelector('.stat').append(box);const stat=document.querySelector('.stat');stat.tabIndex=0;stat.setAttribute('role','button');stat.setAttribute('aria-label','Tutar ve KDV dağılımını göster');stat.onclick=showTaxReport;stat.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();showTaxReport();}};}box.children[0].textContent=rows.some(r=>isReturn(r.data)||isWithholding(r.data))?'Belgelerdeki toplam KDV':kind==='gelir'?'Hesaplanan KDV':'İndirilecek KDV';const total=rows.filter(r=>vatBalanced(r.data)).reduce((a,r)=>a+(r.data.kalemler||[]).reduce((n,l)=>n+(Number(l.kdv)||0),0),0);box.children[1].textContent=formatAmount(total)+' ₺'+(rows.some(r=>!vatBalanced(r.data))?' · Eksik / uyumsuz KDV var':'');}
+function taxGroups(rows){const groups=new Map();for(const r of rows.filter(r=>vatBalanced(r.data)))for(const l of r.data.kalemler||[]){const rate=Number(l.oran);if(!Number.isFinite(rate))continue;const v=groups.get(rate)||{tax:0,gross:0,z:0};const k=Number(l.kdv)||0,g=(Number(l.matrah)||0)+k;v.tax+=k;v.gross+=g;if(r.data.is_z_report)v.z+=g;groups.set(rate,v);}return [...groups].sort((a,b)=>a[0]-b[0]);}
+function showTaxReport(){const rows=taxRows||[],d=panel('taxReport',kind==='gelir'?'Gelir ve hesaplanan KDV':'Gider ve indirilecek KDV');d.append(uiNode('p',clientName($('client').value)+' · '+$('workMonth').value,'muted'));const pending=rows.filter(r=>r.state!=='approved').length;d.append(uiNode('p',rows.length+' belge'+(pending?' · '+pending+' belge henüz onaylanmadı':' · Tümü onaylı'),'muted'));const invalid=rows.filter(r=>!vatBalanced(r.data));if(invalid.length){d.append(uiNode('p',invalid.length+' belgenin KDV dağılımı toplamla uyuşmuyor; KDV toplamına katılmadı.'));for(const r of invalid){const b=uiNode('button',[r.data.evrak_no,r.data.aciklama,r.data.evrak_tarihi,formatAmount(r.data.toplam)+' ₺'].filter(Boolean).join(' · '),'wide secondary');b.onclick=caught(()=>issueDocument(r,d,saved=>{if(saved)taxRows=taxRows.map(x=>x.id===saved.id?saved:x);showTaxReport();}));d.append(b);}}const groups=taxGroups(rows);d.append(uiNode('h3','KDV dahil belge tutarı'));bars(d,groups.map(([r,v])=>({label:'KDV %'+r,value:v.gross})),v=>formatAmount(v)+' ₺');d.append(uiNode('h3',kind==='gelir'?'Hesaplanan KDV':'İndirilecek KDV'));bars(d,groups.map(([r,v])=>({label:'KDV %'+r,value:v.tax})),v=>formatAmount(v)+' ₺');if(kind==='gelir'&&groups.some(([,v])=>v.z)){d.append(uiNode('h3','Z raporları · KDV dahil'));bars(d,groups.filter(([,v])=>v.z).map(([r,v])=>({label:'KDV %'+r,value:v.z})),v=>formatAmount(v)+' ₺');}if(!groups.length)d.append(uiNode('p','Bu dönemde KDV satırı bulunmuyor.'));showPanel(d);}
 
 async function discardPending(filename){if(batchRunning||captureBusy)throw Error('Çekim veya işleme sürerken silinemez.');if(!window.Native?.discardQueued||!Native.discardQueued(filename))throw Error('Fotoğraf kaldırılamadı; işlenmekte olan kopya korundu.');batchQueue=batchQueue.filter(q=>q.filename!==filename);renderBatch();}
 function showPendingBatch(){const d=panel('pendingBatch','Bekleyen çekimler');d.append(uiNode('p','Bu fotoğraflar henüz işlenmedi. Silme yalnız bekleyen çekimleri kaldırır.','muted'));for(const q of batchQueue){const row=uiNode('div',null,'storage-row'),im=uiNode('img');im.src='data:image/jpeg;base64,'+q.thumb;im.alt='Bekleyen fotoğraf';const remove=uiNode('button','Sil','secondary');remove.onclick=caught(async()=>{await discardPending(q.filename);if(batchQueue.length)showPendingBatch();else d.close();});row.append(im,uiNode('span','Fotoğraf '+(batchQueue.indexOf(q)+1)),remove);d.append(row);}const cancel=uiNode('button','Tüm seriyi iptal et','dangerbtn wide');cancel.disabled=batchRunning||captureBusy;cancel.onclick=caught(async()=>{for(const q of [...batchQueue])await discardPending(q.filename);series.active=false;updSeries();d.close();say('Bekleyen seri çekim silindi.');});d.append(cancel);showPanel(d);}
@@ -665,33 +705,52 @@ let desktopReading=false;
 const desktopOriginalSync=sync;
 sync=async function(quiet){const result=await desktopOriginalSync(quiet);return result;};
 desktopChannel.onmessage=()=>{if(!document.hidden&&$('editor').hidden&&!busy)sync(true).catch(()=>{});};
+function importPeriodIssue(data,ctx){const actual=dateMonth(data.evrak_tarihi);return !actual?'Tarih okunamadı':actual!==ctx.period?'Fatura dönemi: '+actual:'';}
+async function chooseImportPeriods(entries,ctx){
+ return reviewImportIssues(entries,ctx,'importPeriodDialog','Fatura tarihlerini kontrol edin',e=>importPeriodIssue(e.data,ctx),e=>{e.data.import_period_accepted={selected:ctx.period,invoice_date:e.data.evrak_tarihi||'',at:new Date().toISOString()};});
+}
+async function importedBlob(item){const encoded=item.base64||(await window.FisDesktop.importImage(item.imageRef)).base64;return new Blob([Uint8Array.from(atob(encoded),c=>c.charCodeAt(0))],{type:'image/jpeg'});}
+let importCancelled=false,importAbortController=null;
 async function desktopReadSelection(target=null){
  if(desktopReading)throw Error('Önceki okuma sürüyor; bitmesini bekleyin.');
  const client=target?.client||$('client').value;if(!client)throw Error('Önce mükellef seçin.');
  const ctx={client,kind:target?.kind||kind,period:$('workMonth').value,created:new Date().toISOString()};
- desktopReading=true;const progressId=uuid();processingCards.set(progressId,{title:'Dosyalar seçiliyor ve okunuyor…'});await render();
+ desktopReading=true;importCancelled=false;importAbortController=new AbortController();$('cancelImport').hidden=false;$('cancelImport').disabled=false;const progressId=uuid();processingCards.set(progressId,{title:'Dosyalar sırayla okunuyor…'});await render();
  try{
-  const result=await window.FisDesktop.importFiles();let added=0,duplicates=0;
-  for(const item of result.items){
-   const blob=new Blob([Uint8Array.from(atob(item.base64),c=>c.charCodeAt(0))],{type:'image/jpeg'});
-   let data=resolveVendor(parseDraft(item.text,ctx.kind,item.qr||[]));data.ocr=item.text;data.source=item.source;data.app_version='desktop-0.14.0-integration';assignMonth(data,ctx);
+  const result=await window.FisDesktop.importFiles();if(importCancelled||result.canceled){say('Yükleme iptal edildi. Kaynak dosyalar korundu.');return;}let added=0,duplicates=0,skipped=0;
+  const entries=result.items.map((item,i)=>({key:String(i),item,data:recoverParty(resolveVendor(applyPartyBlocks(parseDraft(item.text,ctx.kind,item.qr||[]),item.parties||[],clientTaxId(ctx.client))),ctx.kind)}));
+  const allowedParties=await chooseInvoiceParties(entries,ctx);if(importCancelled)return;const accepted=await chooseImportPeriods(entries.filter(e=>!e.committed&&allowedParties.has(e.key)),ctx);
+  for(const entry of entries){
+   if(importCancelled)break;
+   if(entry.committed){added++;continue;}
+   if(!accepted.has(entry.key)){skipped++;continue;}
+   const {item}=entry,blob=await importedBlob(item);let data=entry.data;data.ocr=item.text;data.source=item.source;data.app_version='desktop-1.0.144';assignMonth(data,ctx);
    const ih=await dHash(blob).catch(()=>'');if(await findDup(data,ctx,ih)){duplicates++;continue;}
-   processingCards.set(progressId,{title:data.aciklama||'Belge kontrol ediliyor…',data});await render();
-   data=excludeAutomaticZero(resolveVendor(await aiAssist(blob,data,ctx.kind,false)));assignMonth(data,ctx);
+   processingCards.set(progressId,{title:(added+duplicates+skipped+1)+' / '+entries.length+' · '+(data.aciklama||'Belge kontrol ediliyor…'),data});await render();
+   const checkedDate=data.evrak_tarihi;
+   data=excludeAutomaticZero(recoverParty(resolveVendor(await aiAssist(blob,data,ctx.kind,false)),ctx.kind));if(importCancelled)break;assignMonth(data,ctx);
+   if(data.evrak_tarihi!==checkedDate&&importPeriodIssue(data,ctx)){
+    const choice=await chooseImportPeriods([{...entry,data}],ctx);if(!choice.has(entry.key)){skipped++;continue;}
+   }
+   if(importPeriodIssue(data,ctx))data.import_period_accepted={selected:ctx.period,invoice_date:data.evrak_tarihi||'',at:new Date().toISOString()};
    if(await findDup(data,ctx,ih)){duplicates++;continue;}
    await put({id:uuid(),...ctx,data,orig:snap(data),state:'draft',image:blob,filename:item.filename,ihash:ih});added++;
   }
-  await sync();desktopChannel.postMessage('changed');
-  say(added+' belge eklendi'+(duplicates?' · '+duplicates+' mükerrer atlandı':'')+(result.notes?.length?' · '+result.notes.length+' dosya okunamadı; kaynaklar korundu':''),!!result.notes?.length);
- }finally{processingCards.delete(progressId);desktopReading=false;await render();}
+  if(!importCancelled)void sync().catch(e=>say(e.message,true));desktopChannel.postMessage('changed');
+  say((importCancelled?'Yükleme iptal edildi · ':'')+added+' belge eklendi'+(skipped?' · '+skipped+' belge seçiminizle atlandı':'')+(duplicates?' · '+duplicates+' mükerrer atlandı':'')+(result.notes?.length?' · '+result.notes.length+' dosya uyarısı':'') ,!!result.notes?.length);
+  if(result.notes?.length){const d=panel('importWarnings','Dosya okuma uyarıları');for(const note of result.notes)d.append(uiNode('p',note));showPanel(d);}
+ }finally{processingCards.delete(progressId);desktopReading=false;importAbortController=null;$('cancelImport').hidden=true;await render();if(importCancelled)say('Yükleme iptal edildi. Önceden eklenen belgeler ve kaynak dosyalar korundu.');}
 }
+
 capture=function(mode,target=null){return caught(()=>desktopReadSelection(target))();};
 const addDesktopButton=(text,id,handler,parent)=>{const b=document.createElement('button');b.type='button';b.id=id;b.textContent=text;b.className='secondary';b.onclick=caught(handler);parent.append(b);return b;};
 const desktopBar=document.createElement('div');desktopBar.className='desktop-actions';$('home').insertBefore(desktopBar,$('home').firstChild);
-addDesktopButton('Dosya / PDF yükle','desktopImport',()=>desktopReadSelection(),desktopBar);
-addDesktopButton('Aylık Excel → Zirve','desktopExcel',async()=>{const r=await window.FisDesktop.exportExcel({client:$('client').value,period:$('workMonth').value});if(r.saved)say(r.records+' onaylı kayıt Excel’e yazıldı.');},desktopBar);
-addDesktopButton('Telefonla eşitle','desktopCloudSync',()=>desktopCloudRefresh(false),desktopBar);
-addDesktopButton('Elle belge ekle','desktopManual',async()=>{
+const excelButton=addDesktopButton('Excel → Zirve','desktopExcel',async()=>{const r=await window.FisDesktop.exportExcel({client:$('client').value,period:$('workMonth').value});if(r.saved)say(r.records+' onaylı kayıt Excel’e yazıldı.');},desktopBar);
+excelButton.setAttribute('aria-label','Excel → Zirve');excelButton.title='Aylık Excel dosyasını Zirve için oluştur';
+const excelLogo=document.createElement('img');excelLogo.src='./excel.svg';excelLogo.alt='Excel';excelLogo.width=32;excelLogo.height=32;excelButton.replaceChildren(excelLogo,uiNode('span','→ Zirve'));
+const syncSettings=uiNode('div',null,'setcard desktop-sync-settings');syncSettings.append(uiNode('h3','Telefonla eşitle'),uiNode('p','Telefondaki onayları alır ve bilgisayardaki belgeleri eşitler. Otomatik eşitleme devam eder.'));
+addDesktopButton('Şimdi eşitle','desktopCloudSync',()=>desktopCloudRefresh(false),syncSettings);$('srvCard').before(syncSettings);
+addDesktopButton('Manuel belge ekle','desktopManual',async()=>{
  const client=$('client').value;if(!client)throw Error('Önce mükellef seçin.');const canvas=document.createElement('canvas');canvas.width=900;canvas.height=300;const x=canvas.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,900,300);x.fillStyle='#64748b';x.font='24px sans-serif';x.fillText('Elle eklenen muhasebe belgesi',30,60);x.font='12px sans-serif';x.fillText(uuid(),30,95);const blob=await new Promise(ok=>canvas.toBlob(ok,'image/png'));
  const d=assignMonth(parseDraft('',kind),{kind,period:$('workMonth').value});d.desktop_manual=true;
  const row={id:uuid(),client,kind,data:d,state:'draft',image:blob,filename:uuid()+'.png',created:new Date().toISOString()};await put(row);await openDocument(row);
@@ -745,10 +804,11 @@ async function desktopCloudRefresh(quiet=false){
    const result=await window.FisDesktop.request({path:'/desktop/cloud-sync',method:'POST'});
    if($('editor').hidden)await sync(true);
    const errors=result.errors||[];
-   lastSyncErrors=errors.map(error=>(result.errorDetails||[]).find(d=>d.error===error)||{message:error});updateSyncStatus();if(errors.length&&!quiet)showSyncErrors();
-   else if(!quiet)say('Telefon onayları ve bilgisayar kayıtları eşitlendi.');
+   lastSyncErrors=errors.map(error=>(result.errorDetails||[]).find(d=>d.error===error)||{message:error});updateSyncStatus();if(lastSyncErrors.length&&!quiet)showSyncErrors();
+   else if(!quiet)say(errors.length?'Eşitleme tamamlandı. Daha önce gizlediğiniz uyarılar tekrar gösterilmedi.':'Telefon onayları ve bilgisayar kayıtları eşitlendi.');
    desktopChannel.postMessage('changed');
-  }catch(e){lastSyncErrors=[e.message];updateSyncStatus();if(!quiet)showSyncErrors();}
+   if(Number(result.result?.uploaded)>=20)setTimeout(()=>void desktopCloudRefresh(true),500);
+  }catch(e){lastSyncErrors=[e.message];updateSyncStatus();if(!quiet&&lastSyncErrors.length)showSyncErrors();}
   finally{desktopCloudRunning=false;button.disabled=false;}
  });
 }
@@ -783,14 +843,23 @@ $('moveApply').onclick=caught(async()=>{
  if(!errors.length){moveDialog.close();pickMonth(target);say(count+' belge hedef aya taşındı.');}
 });
 
-let lastSyncErrors=[];const syncStatus=document.createElement('button');syncStatus.className='secondary';syncStatus.hidden=true;desktopBar.append(syncStatus);function updateSyncStatus(){syncStatus.hidden=!lastSyncErrors.length;syncStatus.textContent='Eşitleme sorunları ('+lastSyncErrors.length+')';}function showSyncErrors(){
+let lastSyncErrors=[];
+const syncStatus=document.createElement('button');syncStatus.id='desktopSyncStatus';syncStatus.className='secondary';syncStatus.hidden=true;desktopBar.append(syncStatus);
+function syncErrorKey(item){const i=typeof item==='string'?{message:item}:item;return JSON.stringify([cfg.url||'',i.localId||'',i.remoteId||'',i.revision||'',i.message||i.error||'',i.number||'',i.date||'',i.total??'']);}
+function dismissedSyncErrors(){try{const value=JSON.parse(localStorage.getItem('dismissed-sync-errors')||'[]');return new Set(Array.isArray(value)?value:[]);}catch{return new Set();}}
+function updateSyncStatus(){const dismissed=dismissedSyncErrors();lastSyncErrors=lastSyncErrors.filter(item=>!dismissed.has(syncErrorKey(item)));syncStatus.hidden=!lastSyncErrors.length;syncStatus.textContent='Eşitleme sorunları ('+lastSyncErrors.length+')';}
+function dismissSyncErrors(items){const dismissed=dismissedSyncErrors();for(const item of items)dismissed.add(syncErrorKey(item));localStorage.setItem('dismissed-sync-errors',JSON.stringify([...dismissed].slice(-500)));updateSyncStatus();}
+function syncTrash(label,handler){const b=uiNode('button',null,'secondary sync-trash');b.type='button';b.title=label;b.setAttribute('aria-label',label);b.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"/></svg>';b.onclick=caught(handler);return b;}
+function showSyncErrors(){
  const dialog=panel('desktopSyncProblems','Eşitleme sorunları');
+ dialog.append(uiNode('p','Çöp kutusu yalnız bildirimi kaldırır. Fatura ve cihazdaki düzenlemeler korunur; eşitleme denemeleri devam eder.'));
+ const clear=syncTrash('Tüm bildirimleri temizle',()=>{dismissSyncErrors([...lastSyncErrors]);dialog.close();say('Eşitleme bildirimleri temizlendi.');});clear.append(uiNode('span','Tümünü temizle'));dialog.append(clear);
  for(const item of lastSyncErrors){
   const info=typeof item==='string'?{message:item}:item,row=uiNode('div',null,'setcard');
   row.append(uiNode('b',info.title||'Belge eşitlemesi'),uiNode('p',[info.date,info.number?'No: '+info.number:'',info.total!==undefined&&info.total!==''?formatAmount(info.total)+' TL':''].filter(Boolean).join(' · ')),uiNode('p',info.message));
   const match=/^([a-f0-9-]{36}):/.exec(info.message||'');const id=info.remoteId||match?.[1];
   if(info.localId||id){const go=uiNode('button','Fişe git','secondary');go.onclick=caught(async()=>{
-   if(info.localId){const doc=await(await api('/api/documents/'+info.localId)).json();dialog.close();await openDocument(doc);return;}
+   if(info.localId){const doc=await(await api('/api/documents/'+info.localId)).json();await issueDocument(doc,dialog);return;}
    go.disabled=true;try{
     const result=await window.FisDesktop.request({path:'/desktop/sync-document',method:'POST',body:{id}}),d=result.document.data;
     const view=panel('syncReceiptView','Eşitlenemeyen fiş');view.append(uiNode('h3',d.aciklama||'Fiş'),uiNode('p',[d.evrak_tarihi,'No: '+d.evrak_no,formatAmount(d.toplam)+' TL','VKN: '+(d.vkn||'')].join(' · ')));
@@ -798,7 +867,7 @@ let lastSyncErrors=[];const syncStatus=document.createElement('button');syncStat
     if(result.imageBase64){const im=uiNode('img');im.alt='Fiş fotoğrafı';im.style.cssText='max-width:100%;height:auto';im.src='data:'+(result.document.mime||'image/jpeg')+';base64,'+result.imageBase64;view.append(im);}
     view.append(uiNode('p',result.imageError||'Telefondaki kayıt gösteriliyor. Bu kayıt henüz bilgisayara işlenemedi.'));dialog.close();showPanel(view);
    }finally{go.disabled=false;}
-  });row.append(go);}dialog.append(row);
+  });row.append(go);}row.append(syncTrash('Bu bildirimi temizle',()=>{dismissSyncErrors([item]);row.remove();if(!lastSyncErrors.length)dialog.close();}));dialog.append(row);
  }showPanel(dialog);
 }syncStatus.onclick=showSyncErrors;
 const compactStats=$('statTotal').closest('.stats')||$('statTotal').parentElement;
@@ -851,6 +920,7 @@ function confirmVendorDelete(v){
  const d=panel('vendorDeleteConfirm','Cariyi sil');d.append(uiNode('p',v.name+' · '+v.vkn),uiNode('p','Bu cari bilgisayardaki listeden silinir ve otomatik eşitlemeyle geri gelmez. Mevcut fişlerin ünvanı ve VKN bilgileri, bilgisayardaki kayıtlar korunur. Silinen cariler bölümünden geri alabilirsiniz.'));
  const yes=uiNode('button','Cari listesinden sil','dangerbtn wide');yes.type='button';yes.onclick=caught(async()=>{
  const key=vendorKey(v.vkn);if(!key)throw Error('Cari numarası bulunamadı.');
+ if(window.FisDesktop)await jsonApi('/api/vendors/'+key,{},'DELETE');
  const deleted=deletedVendors();deleted[key]={...v,deletedAt:new Date().toISOString()};localStorage.setItem(vendorDeletionKey(),JSON.stringify(deleted));
  const l=localCat();l.vendors=l.vendors.filter(x=>vendorKey(x.vkn)!==key);delete l.vEdits[key];saveLocal(l);
  d.close();$('entryDlg').close();refreshCatalog();say('Cari listeden silindi. Fişler korundu.');
@@ -862,9 +932,10 @@ function renderDeletedVendorButton(){
 }
 function showDeletedVendors(){
  const d=panel('deletedVendorsPanel','Silinen cariler');
- for(const [key,v] of Object.entries(deletedVendors())){const b=uiNode('button',v.name+' · '+key+' — Geri al','choice-option');b.onclick=()=>{
+ for(const [key,v] of Object.entries(deletedVendors())){const b=uiNode('button',v.name+' · '+key+' — Geri al','choice-option');b.onclick=caught(async()=>{
+  if(window.FisDesktop)await jsonApi('/api/vendors',{vkn:key,name:v.name},'POST');
   const l=localCat();if(v.local&&!l.vendors.some(x=>vendorKey(x.vkn)===key))l.vendors.push({...v,autoPending:false});saveLocal(l);restoreDeletedVendor(key);refreshCatalog();d.close();say('Cari geri alındı.');
- };d.append(b);}showPanel(d);
+ });d.append(b);}showPanel(d);
 }
 
 // Local batch deletion has one IPC request and one SQLite transaction.
@@ -908,3 +979,161 @@ $('confirmDelete').onclick=caught(async()=>{
 setInterval(()=>{if(desktopCloudRunning&&!document.hidden&&$('editor').hidden&&!busy&&!saving&&!desktopReading)sync(true).catch(()=>{});},3000);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)void desktopCloudRefresh(true);});
 window.addEventListener('focus',()=>{void desktopCloudRefresh(true);});
+
+function showSpecialEditor(d){
+ $('invoiceType').value=invoiceType(d);if(!$('invoiceType').value)$('invoiceType').value='SATIS';
+ for(const [id,key] of [['whCode','code'],['whRatio','ratio'],['whTax','subject_vat'],['whAmount','amount'],['whPayable','payable']])$(id).value=d.withholding?.[key]||'';
+ $('withholdingFields').hidden=!isWithholding(d);
+ $('invoiceTypeFields').hidden=!d.is_invoice;
+ $('returnHint').hidden=!isReturn(d);
+ $('returnHint').textContent=editing.kind==='gelir'?'Giden iade: karşı firma alıcıdır. Matrah/KDV alacak, kapatma borç çalışır.':'Gelen iade: karşı firma belgeyi düzenleyendir. Matrah/KDV borç, kapatma alacak çalışır.';
+}
+function readSpecialEditor(d,approve){
+ if(!d.is_invoice){delete d.invoice_type;delete d.withholding;return;}
+ d.invoice_type=$('invoiceType').value;if(approve&&d.invoice_type_conflict)throw Error('Metin ile karekodun fatura tipi farklı; türü kontrol edip yeniden seçin.');
+ if(isWithholding(d)){
+  d.withholding={};for(const [id,key] of [['whCode','code'],['whRatio','ratio'],['whTax','subject_vat'],['whAmount','amount'],['whPayable','payable']]){const value=$(id).value.trim();d.withholding[key]=['code','ratio'].includes(key)?value:value&&Number.isFinite(money(value))?money(value).toFixed(2):'';}
+  if(approve)validateSpecial(d);
+ }else delete d.withholding;
+}
+$('invoiceType').onchange=()=>{
+ const next={...editing.data,invoice_type:$('invoiceType').value,invoice_type_conflict:false};editing.data=next;showPartyWarning(next);
+ $('withholdingFields').hidden=!isWithholding(next);$('returnHint').hidden=!isReturn(next);
+ $('returnHint').textContent='İade türü değiştirildi. Karşı firmanın ünvanını ve VKN/TCKN bilgisini belge üzerinden kontrol edin; gelir/gider bölümü değiştirilmedi.';
+};
+$('docType').addEventListener('change',()=>{$('invoiceTypeFields').hidden=$('docType').value!=='invoice';});
+
+let specialAccountTab='normal';
+function keepSpecialRules(){
+ const host=$('specialRules');if(!host)return;
+ const current=[...host.querySelectorAll('.special-rule')].map(row=>{const rule={kind:accountSide,type:row.dataset.type,rate:'*'};for(const input of row.querySelectorAll('[data-field]'))rule[input.dataset.field]=input.value.trim();if(rule.type==='IADE'&&rule.rate==='0')rule.vat='';if(rule.type==='TEVKIFAT'&&accountSide==='gelir'&&!rule.withholding)rule.withholding=rule.vat;return rule;});
+ profileDraft.special_rules=[...(profileDraft.special_rules||[]).filter(r=>r.kind!==accountSide),...current];
+}
+function drawSpecialRules(){
+ let section=$('specialRuleSection');if(!section){section=uiNode('section');section.id='specialRuleSection';$('rateAccounts').before(section);}
+ section.replaceChildren();const tabs=uiNode('div',null,'seg account-tabs'),host=uiNode('div');host.id='specialRules';section.append(tabs,host);
+ const panels={};
+ for(const [type,title] of [['IADE',accountSide==='gelir'?'Giden iade · 153 / 391 / 320':'Gelen iade · 610 / 191 / 120'],['TEVKIFAT',accountSide==='gelir'?'Tevkifatlı satış hesapları':'Tevkifatlı alış hesapları']]){
+  const panel=uiNode('div');panels[type]=panel;panel.append(uiNode('p',title,'compact-account-title'));host.append(panel);
+  function addRule(rule={}){
+   const row=uiNode('div',null,'special-rule compact-rule');row.dataset.type=type;
+   const fields=[...(type==='TEVKIFAT'?[['ratio','Tevkifat oranı']]:[['rate','KDV oranı']]),['base','Matrah hesabı'],['vat','KDV hesabı'],...(type==='TEVKIFAT'?[['withholding',accountSide==='gelir'?'Tevkifat KDV hesabı':'Tevkifat hesabı (360 vb.)']]:[]),['closing','Hesap kapatma']];
+   for(const [key,label]of fields){const wrap=uiNode('label',label),input=uiNode(['ratio','rate'].includes(key)?'select':'input');input.dataset.field=key;if(key==='rate'){const values=['','0','1','10','20'];if(['8','18'].includes(String(rule.rate)))values.push(String(rule.rate));for(const value of values){const op=uiNode('option',value===''?'Oran seçin':'%'+value);op.value=value;input.append(op);}}if(key==='ratio')for(let n=1;n<=10;n++){const op=uiNode('option',n+'/10');op.value=n+'/10';input.append(op);}input.value=(key==='rate'&&rule[key]==='*'?'':rule[key])||(key==='ratio'?'2/10':key==='withholding'&&accountSide==='gelir'?rule.vat||'':'');input.autocomplete='off';wrap.append(input);row.append(wrap);}
+   if(type==='IADE'){const rate=row.querySelector('[data-field=rate]'),vat=row.querySelector('[data-field=vat]');const update=()=>{vat.disabled=rate.value==='0';vat.closest('label').hidden=vat.disabled;row.dataset.zero=String(vat.disabled);};rate.addEventListener('change',update);update();}
+   const del=uiNode('button','×','secondary');del.type='button';del.setAttribute('aria-label','Hesap satırını kaldır');del.onclick=()=>row.remove();row.append(del);panel.append(row);
+  }
+  const unique=new Set();for(const rule of profileDraft.special_rules||[])if(rule.kind===accountSide&&rule.type===type){const key=JSON.stringify([type,type==='IADE'?rule.rate:rule.ratio||'',rule.base,rule.vat,rule.withholding||'',rule.closing]);if(!unique.has(key)){unique.add(key);addRule(rule);}}
+  const add=uiNode('button',type==='TEVKIFAT'?'+ Tevkifat oranı':'+ İade KDV oranı','secondary');add.type='button';add.onclick=()=>addRule({});panel.append(add);
+  if(type==='TEVKIFAT'&&accountSide==='gelir')panel.append(uiNode('small','Tevkifat KDV hesabı aynıysa KDV netleştirilir. Boş bırakırsanız KDV hesabı kullanılır.'));
+ }
+ function select(tab){specialAccountTab=tab;for(const b of tabs.children)b.classList.toggle('active',b.dataset.tab===tab);$('rateAccounts').hidden=tab!=='normal';$('closingLabel').hidden=tab!=='normal';for(const [type,panel]of Object.entries(panels))panel.hidden=tab!==type;}
+ for(const [value,label]of [['normal','Normal'],['IADE','İade'],['TEVKIFAT','Tevkifat']]){const b=uiNode('button',label);b.type='button';b.dataset.tab=value;b.onclick=()=>select(value);tabs.append(b);}
+ select(specialAccountTab);
+}
+
+function clientTaxId(client){return String(catalog.clients.find(c=>String(c.id)===String(client))?.profile?.tax_id||'');}
+function invoicePartyIssue(d,kind,client){
+ if(isReturn(d)&&d.return_direction_version!==2)return {signature:JSON.stringify(['legacy-return',kind,client]),message:'Bu iade eski yön düzeninde kaydedilmiş. Bizim kestiğimiz iade Gelir/Giden, bize gelen iade Gider/Gelen bölümünde olmalı. Bölümü ve hesapları kontrol edin.'};
+ const parsed=d.ocr&&(!d.seller_vkn||!d.buyer_vkn)?parseDraft(d.ocr,kind):{};
+ return partyCheck({...d,seller_vkn:d.seller_vkn||parsed.seller_vkn,buyer_vkn:d.buyer_vkn||parsed.buyer_vkn},kind,clientTaxId(client));
+}
+function showPartyWarning(d){
+ const issue=invoicePartyIssue(d,editing.kind,editing.client);$('partyWarning').hidden=!issue;
+ $('partyWarningText').textContent=issue?.message||'';$('partyConfirm').checked=!!issue&&d.party_ack===issue.signature;
+}
+function validatePartyApproval(d,approve){
+ const issue=invoicePartyIssue(d,editing.kind,editing.client);
+ if(issue){if(approve&&!$('partyConfirm').checked)throw Error('Mükellef / gelir-gider uyarısını kontrol edin ve kontrol kutusunu işaretleyin.');if($('partyConfirm').checked)d.party_ack=issue.signature;else delete d.party_ack;}
+ else delete d.party_ack;
+}
+async function chooseInvoiceParties(entries,ctx){
+ return reviewImportIssues(entries,ctx,'partyImportDialog','Mükellef ve fatura yönünü kontrol edin',e=>{const issue=invoicePartyIssue(e.data,ctx.kind,ctx.client);return issue&&e.data.party_ack!==issue.signature?issue.message:'';},e=>{const issue=invoicePartyIssue(e.data,ctx.kind,ctx.client);if(issue)e.data.party_ack=issue.signature;});
+}
+async function reviewImportIssues(entries,ctx,id,title,issue,acceptEntry){
+ if(!entries.some(issue))return new Set(entries.map(e=>e.key));
+ return new Promise(resolve=>{
+  const d=panel(id,title),choices=new Map(),list=uiNode('div'),actions=uiNode('div',null,'sheetrow');let reviewing=false,settled=false;
+  const finish=value=>{if(settled)return;settled=true;d.removeEventListener('close',closed);resolve(value);d.close();};
+  const closed=()=>{if(!reviewing)finish(new Set());};d.addEventListener('close',closed);
+  if(desktopReading){const stop=uiNode('button','Yüklemeyi iptal et','secondary');stop.onclick=()=>cancelImport.click();d.append(stop);}
+  d.append(uiNode('p','Belgeye tıklayarak açın. Geri, Taslağı kaydet veya Onayla ile bu listeye dönersiniz. Kaydettiğiniz belgeler korunur.'));
+  for(const [label,value]of [['Tümüne evet',true],['Tümüne hayır',false]]){const b=uiNode('button',label,'secondary');b.onclick=()=>{for(const c of choices.values())c.checked=value;};actions.append(b);}
+  list.style.maxHeight='45vh';list.style.overflow='auto';d.append(actions,list);
+  function draw(){const pos=list.scrollTop;list.replaceChildren();let remaining=0;
+   for(const e of entries){const message=issue(e);if(e.savedRecord?.state==='approved'||!message)continue;remaining++;
+    let check=choices.get(e.key);if(!check){check=uiNode('input');check.type='checkbox';check.style.width='22px';check.setAttribute('aria-label',e.data.evrak_no||e.key);choices.set(e.key,check);}
+    const row=uiNode('div',null,'import-issue-row'),b=uiNode('button',null,'secondary import-issue-open');
+    b.append(uiNode('strong',[e.data.evrak_no||'Numara okunamadı',e.data.evrak_tarihi||'Tarih okunamadı',formatAmount(e.data.toplam)+' ₺'].join(' · ')),uiNode('span',e.data.aciklama||'Ünvan okunamadı'),uiNode('small',message),uiNode('small',e.item.source||e.item.filename||''),uiNode('span','Fişe git →'));
+    b.onclick=caught(async()=>{b.disabled=true;try{const blob=await importedBlob(e.item);reviewing=true;d.close();editorReturn=async saved=>{if(saved){e.data=saved.data;e.committed=true;e.savedRecord=saved;check.checked=true;}page('home');draw();showPanel(d);reviewing=false;};await openDocument({id:uuid(),...ctx,data:e.data,orig:snap(e.data),state:'draft',image:blob,filename:e.item.filename,...(e.savedRecord||{}),importStaged:true});}catch(error){reviewing=false;editorReturn=null;showPanel(d);throw error;}finally{b.disabled=false;}});
+    row.append(check,b);list.append(row);
+   }if(!remaining)list.append(uiNode('p','Bu listedeki belgeler kontrol edildi. Devam edebilirsiniz.'));list.scrollTop=pos;
+  }
+  const done=uiNode('button','Seçilenleri kabul et / diğerlerini atla');done.onclick=()=>{const accepted=new Set();for(const e of entries){if(e.committed||!issue(e)||choices.get(e.key)?.checked){if(!e.committed)acceptEntry(e);accepted.add(e.key);}}finish(accepted);};d.append(done);draw();showPanel(d);
+ });
+}
+
+const approveSelected=uiNode('button','Seçilenleri onayla','secondary');approveSelected.id='approveSelected';$('selectionBar').append(approveSelected);updateSelection();
+approveSelected.onclick=caught(async()=>{
+ if(busy)throw Error('Eşitlemenin tamamlanmasını bekleyin.');
+ const chosen=shown.filter(r=>selected.has(r.id)&&!r.deleted&&r.state!=='approved');
+ if(!chosen.length)throw Error('Onaylanmamış belge seçin.');
+ const ready=[],blocked=[];
+ for(const r of chosen){try{
+  const d=r.data;
+  if(r.syncConflict)throw Error('Önce eşitleme sorununu çözün.');
+  if(!d.aciklama||!d.evrak_no||!quickOk(r)||!vatBalanced(d))throw Error('Ünvan, kimlik, tarih veya KDV dağılımını kontrol edin.');
+  if(d.qr_currency&&!['TRY','TRL','TL'].includes(d.qr_currency))throw Error('Dövizli belgeyi ayrıca kontrol edin.');
+  const issue=invoicePartyIssue(d,r.kind,r.client);if(issue&&d.party_ack!==issue.signature)throw Error('Mükellef / fatura yönünü kontrol edin.');
+  if(importPeriodIssue(d,{period:r.period||$('workMonth').value})&&!d.import_period_accepted)throw Error('Fatura dönemini kontrol edin.');
+  validateSpecial(d);ready.push(r);
+ }catch(e){blocked.push({r,message:e.message});}}
+ const dialog=panel('approveSelection','Toplu onay');dialog.append(uiNode('p',ready.length+' belge onaylanabilir. '+blocked.length+' belge ayrıca kontrol istiyor.'));
+ for(const {r,message} of blocked){const b=uiNode('button',[r.data.evrak_no,r.data.evrak_tarihi,formatAmount(r.data.toplam)+' ₺',message].join(' · '),'wide secondary');b.dataset.issueId=r.id;b.onclick=caught(()=>issueDocument(r,dialog));dialog.append(b);}
+ const confirm=uiNode('button',ready.length+' belgeyi onayla','wide');confirm.disabled=!ready.length;
+ const status=uiNode('p',''),meter=uiNode('progress');status.id='approvalProgressText';status.setAttribute('role','status');status.setAttribute('aria-live','polite');meter.id='approvalProgress';meter.max=ready.length;meter.value=0;meter.style.width='100%';status.hidden=meter.hidden=true;dialog.append(status,meter);
+ confirm.onclick=caught(async()=>{if(saving||busy)throw Error('Devam eden işlemin bitmesini bekleyin.');confirm.disabled=true;saving=true;const failures=[];let done=0,processed=0;const jobId=uuid();status.hidden=meter.hidden=false;
+ const paint=p=>{meter.value=p.processed;const percent=Math.floor(p.processed*100/Math.max(1,p.total));status.textContent=p.processed+' / '+p.total+' belge işlendi · %'+percent+' · '+p.approved+' onaylandı · '+p.failed+' hata'+(p.phase==='excel'?' · Aylık Excel hazırlanıyor…':'');};
+ paint({processed:0,total:ready.length,approved:0,failed:0});
+ const lockButtons=[...dialog.querySelectorAll('button')];for(const b of lockButtons)b.disabled=true;const preventClose=e=>e.preventDefault();dialog.addEventListener('cancel',preventClose);
+ const unsubscribe=window.FisDesktop?.onApproveProgress?.(p=>{if(p.jobId===jobId)paint(p);});
+ const reviewed=r=>({...r.data,review_ack:true,vat_manually_reviewed:true,kind:r.kind,vendor_confirmed_at:new Date().toISOString()});
+ try{
+  if(window.FisDesktop&&ready.every(r=>r.desktop||!r.image)){
+   const result=await window.FisDesktop.request({path:'/desktop/approve-many',method:'POST',body:{jobId,items:ready.map(r=>({id:r.id,revision:r.revision,data:reviewed(r)}))}});
+   for(const id of result.approved){selected.delete(id);done++;}
+   for(const error of result.errors)failures.push({r:ready.find(r=>r.id===error.id),message:error.error});
+   if(result.warnings?.length)say(result.warnings.join(' · '),true);
+  }else for(const r of ready){try{
+   const d=reviewed(r);
+   if(r.image&&!r.desktop)await put({...r,data:d,state:'approved'});else await jsonApi('/api/documents/'+r.id,{revision:r.revision,state:'approved',data:d},'PATCH');
+   selected.delete(r.id);done++;
+  }catch(e){failures.push({r,message:e.message});}processed++;paint({processed,total:ready.length,approved:done,failed:failures.length});}
+ }finally{unsubscribe?.();saving=false;for(const b of lockButtons)b.disabled=false;dialog.removeEventListener('cancel',preventClose);}
+ dialog.close();await sync(true);await render();say(done+' belge onaylandı'+(failures.length?' · '+failures.length+' belge onaylanamadı.':'.'),!!failures.length);
+ if(failures.length){const errors=panel('approvalErrors','Onaylanamayan belgeler');for(const {r,message} of failures){const b=uiNode('button',r.data.evrak_no+' · '+message,'wide secondary');b.dataset.issueId=r.id;b.onclick=caught(()=>issueDocument(r,errors));errors.append(b);}showPanel(errors);}
+ });dialog.append(confirm);showPanel(dialog);
+});
+
+const cancelImport=uiNode('button','Yüklemeyi iptal et','secondary');cancelImport.id='cancelImport';cancelImport.hidden=true;document.querySelector('.desktop-actions').append(cancelImport);
+cancelImport.onclick=caught(async()=>{importCancelled=true;importAbortController?.abort();cancelImport.disabled=true;for(const id of ['importPeriodDialog','partyImportDialog'])if($(id)?.open)$(id).close();say('Yükleme durduruluyor; daha önce eklenen belgeler korunuyor.');await window.FisDesktop.cancelImport?.();});
+window.FisDesktop.onImportProgress?.(data=>{if(!desktopReading||importCancelled)return;for(const value of processingCards.values())value.title=data.read+' belge okundu…';render().catch(()=>{});});
+
+let searchTimer;$('documentSearch').oninput=()=>{clearTimeout(searchTimer);searchTimer=setTimeout(()=>void render(),100);};
+
+// Document toolbar: card-style sort dropdown and compact search.
+(()=>{
+const sel=$('documentSort'),btn=$('sortBtn'),menu=$('sortMenu');
+const icons={date:'<rect x="4" y="5" width="16" height="15" rx="3"/><path d="M8 3v4M16 3v4M4 10h16"/>',az:'<path d="M5 8h8M5 12h6M5 16h4M17 6v12M14 15l3 3 3-3"/>',type:'<path d="M7 3h8l4 4v14H7zM14 3v5h5M10 13h6M10 17h4"/>',amountAsc:'<path d="M12 19V5M6 11l6-6 6 6"/>',amountDesc:'<path d="M12 5v14M6 13l6 6 6-6"/>'};
+const hints={date:'En yeni belge üstte',az:'Firma adına göre alfabetik',type:'Faturaları türüne göre grupla',amountAsc:'En küçük tutar üstte',amountDesc:'En büyük tutar üstte'};
+const svg=k=>'<svg viewBox="0 0 24 24" aria-hidden="true">'+icons[k]+'</svg>';
+function paintButton(){const o=sel.selectedOptions[0];btn.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M7 12h10M10 17h4"/></svg><span></span><i aria-hidden="true">▾</i>';btn.querySelector('span').textContent=o?o.textContent:'Sırala';}
+function close(){menu.hidden=true;btn.setAttribute('aria-expanded','false');}
+function open(){menu.replaceChildren();for(const o of sel.options){const b=document.createElement('button');b.type='button';b.setAttribute('role','menuitemradio');b.className='sort-card'+(o.selected?' on':'');b.setAttribute('aria-checked',o.selected);b.innerHTML=svg(o.value)+'<span><b></b><small></small></span><em aria-hidden="true">✓</em>';b.querySelector('b').textContent=o.textContent;b.querySelector('small').textContent=hints[o.value]||'';b.onclick=()=>{sel.value=o.value;sel.dispatchEvent(new Event('change',{bubbles:true}));paintButton();close();};menu.append(b);}menu.hidden=false;btn.setAttribute('aria-expanded','true');}
+btn.onclick=e=>{e.stopPropagation();menu.hidden?open():close();};
+document.addEventListener('click',e=>{if(!menu.hidden&&!menu.contains(e.target)&&e.target!==btn)close();});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!menu.hidden){close();btn.focus();}});
+sel.addEventListener('change',paintButton);paintButton();
+const chip=$('deletedChip'),cb=$('showDeleted');const paintChip=()=>chip.classList.toggle('on',cb.checked);cb.addEventListener('change',paintChip);paintChip();
+})();
+
+window.FisDesktop.onOfficeReady?.(caught(async()=>{const boot=await window.FisDesktop.request({path:'/desktop/bootstrap'});if(boot.connection?.url){cfg=boot.connection;localStorage.setItem('connection',JSON.stringify(cfg));settingsSubs();await desktopCloudRefresh(false);}}));

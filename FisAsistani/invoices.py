@@ -14,11 +14,18 @@ def parse(text, kind):
     from core import normalized, date_value, ocr_money, gross_line, money
     annotations=[x for x in text.splitlines() if x.startswith('[OCR ')]
     text='\n'.join(x for x in text.splitlines() if not x.startswith('[OCR '))
+    text=re.sub(r'ALICI\s+BİLGİLERİ','SAYIN',text,flags=re.I)
+    text=re.sub(r'Vergi\s*Numaras[ıi]\s*:?', 'VKN:',text,flags=re.I)
     u=normalized(text)
     d=dict(tarih='',evrak_tarihi='',aciklama='',vkn='',evrak_no='',
            kod='ML' if kind=='gelir' else 'MS',toplam='',kalemler=[],ocr=text,
            kind=kind,is_invoice=True)
+    from special_invoice import invoice_type,is_return
+    d['invoice_type']=invoice_type(d)
+    d['return_direction_version']=2
     notes=[]
+    scenario=re.search(r'\bSENARYO\s*:?\s*([A-Z]+)',u)
+    d['invoice_scenario']=scenario[1] if scenario else ''
     nums=set(re.findall(r'\bFATURA\s*(?:NO|NUMARASI)\s*[:.]?\s*([A-Z0-9/-]*\d[A-Z0-9/-]*)',u))
     if len(nums)==1:d['evrak_no']=next(iter(nums))
     dates=set(re.findall(r'\bFATURA\s*TARIHI\s*[:.]?\s*(\d{2}[./-]\d{2}[./-]\d{4})',u))
@@ -45,7 +52,8 @@ def parse(text, kind):
             spaced=bool(re.search(r'\S[ \t]{4,}\S',line.strip()))
             # Alıcıyla aynı yatay satırdaki sağ fatura bilgi sütununu ayır.
             line=re.split(r'\b(?:Fatura\s+(?:No|Tarihi|Tipi)|Özelleştirme\s+No|Senaryo)\s*:',line,maxsplit=1,flags=re.I)[0]
-            line=re.sub(r'\s+',' ',line).strip();n=normalized(line)
+            line=re.sub(r'\s+',' ',line).strip()
+            line=re.sub(r'^[\s"“”]*(?:Ekonomik,?\s*hızlı\s+ve\s+)?yenilikçi\s+çözüm\s+ortağınız[\s"“”]*','',line,flags=re.I).strip();n=normalized(line)
             if not n:continue
             if re.search(r'^(?:E[- ]?(?:ARSIV|FATURA|BELGE)|FATURA|LOGO)\b',n):continue
             if not names and re.match(r'^\d{2}[./-]\d{2}[./-]\d{4}.*E-BELGE',n):continue
@@ -70,6 +78,7 @@ def parse(text, kind):
             vals=re.findall(amount,re.split(r'ODENECEK\s+(?:NET\s+)?TUTAR',line)[-1])
             if vals:payable.append(ocr_money(vals[-1].replace(' ','')))
         if not re.search(r'HESAPLANAN\s+(?:KDV|GERCEK|KATMA)|KDV\s*MATRAHI',line):continue
+        if 'TEVKIF' in line:continue
         rate=re.search(r'%\s*(\d{1,2})(?:[.,]0{1,2})?|\(\s*(\d{1,2})\s*\)',line)
         if not rate:continue
         key=str(int(rate[1] or rate[2]))

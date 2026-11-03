@@ -67,6 +67,28 @@ function compare(source,target){
  for(const r of t.unidentified)review.push({invoice:r,invoiceNo:'Numara okunamadı',candidates:[],reasons:['Muavin kaydında evrak numarası yok']});
  return {mode:'muavin',sourceCount:s.rows.length,targetCount:t.rows.length,missing,extra,matched,review,rawSourceCount:source.length,rawTargetCount:target.length};
 }
-const api={date,number,columns,sheetRows,pdfRows,partyMatches,compare};
+function invoiceReportColumns(values){
+ const keys=values.map(header),find=names=>{for(const name of names){const i=keys.indexOf(name);if(i>=0)return i;}return -1;};
+ const c={no:find(['FATURANO','FATURANUMARASI','BELGENO']),date:find(['FATURATARIHI','BELGETARIHI']),party:find(['CARIADI','CARIUNVANI','UNVAN','SATICIUNVANI','FIRMAADI']),vkn:find(['CARIVKNTCKN','VKNTCKN','VKN','VERGINO','VERGINUMARASI']),payable:find(['ODENECEKMIKTAR','ODENECEKTUTAR','NETODENECEKTUTAR']),payableTL:find(['ODENECEKTLTUTAR','ODENECEKTUTARTL']),currency:find(['PARABIRIMI','DOVIZCINSI']),service:find(['MALHIZMETTOPLAMTUTARI','MALHIZMETTOPLAMI']),serviceTL:find(['MALHIZMETTOPLAMTUTARITL']),withholdingBase:find(['TEVKIFATATABIISLEMTUTARI']),type:find(['TIPTUR','FATURATIPI'])};
+ return c.no>=0&&c.date>=0&&c.party>=0?c:null;
+}
+function invoiceReportRows(rows,meta={}){
+ let cols=null,recognized=false;const records=[];
+ for(let i=0;i<rows.length;i++){
+  const row=rows[i],found=invoiceReportColumns(row);if(found){cols=found;recognized=true;continue;}if(!cols)continue;
+  const no=text(row[cols.no]),when=date(row[cols.date]),party=text(row[cols.party]);
+  if(/^(GENELTOPLAM|ARATOPLAM|TOPLAM)$/.test(header(no)))continue;
+  if(!no&&!when)continue;
+  if(!when&&!party&&!/\d/.test(no))continue;
+  const money=v=>root.MuavinCompare.money(v);
+  let currency=header(row[cols.currency]);if(['TL','TRY','TURKLIRASI'].includes(currency))currency='TRY';
+  let payable=money(row[cols.payable]);
+  if(payable===null&&cols.payableTL>=0&&(!currency||currency==='TRY')){payable=money(row[cols.payableTL]);currency='TRY';}
+  const service=money(row[cols.service]);
+  records.push({...meta,sourceRow:i+1,sourceKind:'invoice-excel',invoiceNo:no,invoiceDate:when,counterpartyName:party,vkn:text(row[cols.vkn]).replace(/\s/g,''),comparisonPayable:payable,comparisonServiceTotal:service!==null?service:currency==='TRY'?money(row[cols.serviceTL]):null,comparisonWithholdingBase:money(row[cols.withholdingBase]),isWithholdingInvoice:/TEVKIFAT/.test(header(row[cols.type])),amountCurrency:currency||null,partyEvidence:'Excel cari sütunu',comparisonPayableEvidence:'Excel ödenecek sütunu'});
+ }
+ return {recognized,records};
+}
+const api={date,number,columns,sheetRows,pdfRows,partyMatches,compare,invoiceReportColumns,invoiceReportRows};
 if(typeof module!=='undefined')module.exports=api;root.MuavinCompare=api;
 })(typeof window!=='undefined'?window:globalThis);

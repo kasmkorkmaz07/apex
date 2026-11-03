@@ -78,10 +78,35 @@ class DesktopService:
    try:self.store.sync_month(cid,period)
    except Exception as e:warnings.append('Belgeler silindi; aylık Excel güncellenemedi: '+str(e))
   return {'deleted':deleted,'errors':errors,'warnings':warnings}
+ def approve_many(self,body):
+  items=body.get('items');approved=[];errors=[];months=set();warnings=[]
+  if not isinstance(items,list) or not items or len(items)>10000:raise ValueError('Geçersiz toplu onay listesi.')
+  if len({str(item.get('id')) for item in items})!=len(items):raise ValueError('Onay listesinde tekrarlanan belge var.')
+  def progress(processed,phase='approving'):
+   if getattr(self,'progress',None):self.progress({'processed':processed,'approved':len(approved),'failed':len(errors),'total':len(items),'phase':phase})
+  progress(0)
+  for index,item in enumerate(items):
+   try:
+    rows=self.find(item['id'])
+    if not rows:raise ValueError('Belge bulunamadı.')
+    doc=self.document(rows)
+    if doc['revision']!=item.get('revision'):raise ValueError('Belge başka pencerede değişti; yenileyip tekrar deneyin.')
+    self.save_group(rows,item['data'],'approved',defer_months=months)
+    approved.append(item['id'])
+   except Exception as error:errors.append({'id':item.get('id'),'error':str(error)})
+   progress(index+1)
+  progress(len(items),'excel')
+  for cid,period in months:
+   try:self.store.sync_month(cid,period)
+   except Exception:warnings.append('Onaylar kaydedildi; aylık Excel güncellenemedi. Excel dosyasını kapatıp yeniden dışa aktarın.')
+  return {'approved':approved,'errors':errors,'warnings':warnings}
  def catalog(self):
   return {'clients':[{'id':str(cid),'name':name,'profile':profile(self.store,cid),'revision':1} for cid,name in self.store.clients()], 'vendors':[{'vkn':v,'name':n} for v,n in self.store.vendor_rows()]}
- def save_group(self,rows,d,state,new_image=None):
+ def save_group(self,rows,d,state,new_image=None,defer_months=None):
   if any(r['exported'] for r in rows):raise ValueError('Excel’e aktarılan kayıt kilitli; mevcut kayıt değiştirilmedi.')
+  d=dict(d)
+  if not str(d.get('kod') or '').strip() and rows[0]['data'].get('kind','gider')==d.get('kind','gider') and rows[0]['data'].get('kod'):
+   d['kod']=rows[0]['data']['kod']
   cid=rows[0]['client'];d=apply_defaults(self.store,cid,dict(d));d['kind']=d.get('kind','gider');approve=state=='approved'
   if d.get('is_z_report'):d['vkn']='';d['aciklama']='Z RAPORU'
   for k in ('_cep_id',):
@@ -109,9 +134,11 @@ class DesktopService:
    if new_image:self.db.execute('UPDATE receipts SET hash=? WHERE id=?',(hashlib.sha256(pathlib.Path(new_image).read_bytes()).hexdigest(),rows[0]['id']))
    for old in rows[len(parts):]:self.db.execute('DELETE FROM receipts WHERE id=?',(old['id'],))
    if approve and d.get('vkn') and d.get('kind')!='gelir' and not d.get('custom_description'):
-    self.db.execute('INSERT OR REPLACE INTO vendors VALUES (?,?)',(d['vkn'],d['aciklama']));self.store.learn_vendor(d)
+    self.db.execute('INSERT OR IGNORE INTO vendors SELECT ?,? WHERE NOT EXISTS(SELECT 1 FROM deleted_vendors WHERE vkn=?)',(d['vkn'],d['aciklama'],d['vkn']));self.store.learn_vendor(d)
   warning=None
-  if approve and period:
+  if approve and period and defer_months is not None:
+   defer_months.update((cid,value) for value in {period,*[row['period'] for row in rows]} if value)
+  elif approve and period:
    try:
     for old_period in {row['period'] for row in rows if row['period'] and row['period']!=period}:self.store.sync_month(cid,old_period)
     self.store.sync_month(cid,period)
@@ -136,6 +163,9 @@ class DesktopService:
   return p
  def request(self,path,method='GET',body=None):
   body=body or {};url=urlsplit(path);path=url.path;query=parse_qs(url.query)
+  if path=='/desktop/approve-many':
+   if method!='POST':raise ValueError('Geçersiz istek.')
+   return self.approve_many(body)
   if path=='/desktop/bootstrap':return {'catalog':self.catalog(),'preferences':self.configuration('desktop-preferences.json'),'connection':self.configuration('cep-baglanti.json'),'version':'1.0.130'}
   if path=='/desktop/preferences':
    allowed={k:body[k] for k in ('theme','ai_key','ai_mode','ai_model','qr_profile') if k in body};v=self.configuration('desktop-preferences.json');v.update(allowed);self.config_write('desktop-preferences.json',v);return {'ok':True}
@@ -152,6 +182,13 @@ class DesktopService:
    c=self.configuration('cep-baglanti.json')
    if not c.get('url') or not c.get('token'):raise ValueError('Ofis bağlantısı ayarlardan tanımlanmalı.')
    b=Bridge(self.home,c)
+   if getattr(self,'progress',None):
+    original=b.api.request;calls=[0]
+    def request_progress(*args,**kwargs):
+     calls[0]+=1;self.progress(calls[0])
+     try:return original(*args,**kwargs)
+     finally:self.progress(calls[0])
+    b.api.request=request_progress
    try:
     from concurrent.futures import ThreadPoolExecutor
     pending=self.db.execute('SELECT id,operation,revision FROM desktop_outbox').fetchall()
@@ -201,8 +238,13 @@ class DesktopService:
    p=self.store.sync_month(cid,period,body.get('path') or root/period/filename)
    return {'path':str(p),'records':len(self.store.monthly_records(cid,period))}
   if path=='/api/catalog':return self.catalog()
+  if path.startswith('/api/vendors/') and method=='DELETE':
+   vkn=path.rsplit('/',1)[1]
+   if not re.fullmatch(r'\d{10,11}',vkn):raise ValueError('Geçersiz VKN/TCKN.')
+   self.store.delete_vendor(vkn);return {'deleted':True,'vkn':vkn}
   if path=='/api/vendors' and method=='POST':
    vkn=str(body.get('vkn',''));name=body.get('name','').strip()
+   if body.get('automatic') and (self.db.execute('SELECT 1 FROM vendors WHERE vkn=?',(vkn,)).fetchone() or self.db.execute('SELECT 1 FROM deleted_vendors WHERE vkn=?',(vkn,)).fetchone()):return {'vkn':vkn,'skipped':True}
    if self.db.execute('SELECT 1 FROM vendors WHERE vkn=?',(vkn,)).fetchone():self.store.update_vendor(vkn,vkn,name)
    else:self.store.add_vendor(vkn,name)
    return {'vkn':vkn,'name':name}
@@ -234,9 +276,12 @@ class DesktopService:
   if path=='/api/documents/delete-batch' and method=='POST':return self.delete_many(body)
   if path=='/api/documents/purge':
    skipped=[]
-   for id in body.get('ids',[]):
-    if not self.db.execute('SELECT 1 FROM desktop_trash WHERE id=?',(id,)).fetchone():skipped.append(id);continue
-    with self.db:self.db.execute('DELETE FROM desktop_trash WHERE id=?',(id,))
+   ids=body.get('ids',[])
+   if not isinstance(ids,list) or len(ids)>10000:raise ValueError('Geçersiz silme listesi.')
+   with self.db:
+    for id in dict.fromkeys(ids):
+     if not self.db.execute('SELECT 1 FROM desktop_trash WHERE id=?',(id,)).fetchone():skipped.append(id);continue
+     self.db.execute('DELETE FROM desktop_trash WHERE id=?',(id,))
    return {'skipped':skipped}
   m=re.fullmatch(r'/api/documents/([A-Za-z0-9-]+)(/image|/restore|/delivery)?',path)
   if m:
@@ -294,7 +339,7 @@ class DesktopService:
     return {'id':id,'revision':doc['revision'],'deleted':True}
   raise ValueError('Desteklenmeyen yerel işlem: '+path)
 
-def ocr_files(paths,folder):
+def ocr_files(paths,folder,metadata_only=False,progress=None):
  from import_documents import document_images
  from ocr_local import read_image
  from PIL import Image,ImageOps
@@ -306,11 +351,34 @@ def ocr_files(paths,folder):
     im=ImageOps.exif_transpose(im).convert('RGB')
     try:qr=oku_qr(im)
     except Exception:qr=[]
-    im.thumbnail((3600,10000));target=p.with_suffix('.jpg');im.save(target,'JPEG',quality=93)
+    pages_file=pathlib.Path(str(p)+'.pages.json')
+    if pages_file.exists():
+     paths=json.loads(pages_file.read_text(encoding='utf8'));sizes=[]
+     for part in paths:
+      with Image.open(part) as page:sizes.append(page.size)
+     width=max(x for x,y in sizes);height=sum(y for x,y in sizes)
+     if width*height>80000000 or height>65000:raise ValueError('Çok uzun PDF tek görsel olarak açılamadı; dosyayı fatura bazında bölün. Sayfalar ayrı fiş yapılmadı.')
+     combined=Image.new('RGB',(width,height),'white');y=0
+     for part in paths:
+      with Image.open(part) as page:combined.paste(page.convert('RGB'),(0,y));y+=page.height
+     im.close();im=combined
+    else:im.thumbnail((3600,10000))
+    target=p.with_suffix('.jpg');im.save(target,'JPEG',quality=93);im.close()
    invoice_qr=any('kdvmatrah' in q.lower() and ('odenecek' in q.lower() or 'vergidahil' in q.lower()) for q in qr)
-   text='' if invoice_qr else read_image(target)
-   items.append({'filename':target.name,'base64':base64.b64encode(target.read_bytes()).decode(),'text':text,'qr':qr if isinstance(qr,list) else [qr] if qr else [],'source':label})
-  except Exception as e:notes.append(label+': '+type(e).__name__)
+   # Invoice QR totals rarely include both party names. Read text as well so
+   # income receives the buyer and expenses receive the seller's full title.
+   # PDF text is already extracted with column-aware positions. Re-running
+   # OCR both wastes time and loses the buyer/seller column boundaries.
+   sidecar=pathlib.Path(str(p)+'.invoice.txt')
+   embedded=sidecar.read_text(encoding='utf-8') if sidecar.exists() else ''
+   try:text=embedded if len(embedded.strip())>=80 else read_image(target)
+   except Exception:
+    if not invoice_qr:raise
+    text='';notes.append(label+': Karekod okundu; ünvan metinden okunamadı, kontrol edin.')
+   party_file=pathlib.Path(str(p)+'.parties.json');parties=json.loads(party_file.read_text(encoding='utf8')) if party_file.exists() else []
+   items.append({'parties':parties,'filename':target.name,**({'imageRef':target.name} if metadata_only else {'base64':base64.b64encode(target.read_bytes()).decode()}),'text':text,'qr':qr if isinstance(qr,list) else [qr] if qr else [],'source':label})
+   if progress:progress(len(items))
+  except Exception as e:notes.append(label+': '+str(e))
  return {'items':items,'notes':notes}
 
 if __name__=='__main__':
@@ -319,9 +387,10 @@ if __name__=='__main__':
   try:
    req=json.loads(line)
    if req.get('command')=='ocr':
-    result=ocr_files(req['paths'],home/'fotograflar'/'okuma')
+    result=ocr_files(req['paths'],home/'fotograflar'/'okuma',req.get('metadataOnly',False),lambda n:print(json.dumps({'id':req['id'],'progress':n}),flush=True))
    else:
     if service is None:service=DesktopService(home)
+    service.progress=lambda n:print(json.dumps({'id':req['id'],'progress':n}),flush=True)
     result=service.request(req['path'],req.get('method','GET'),req.get('body'))
    print(json.dumps({'id':req['id'],'result':result},ensure_ascii=False),flush=True)
   except Exception as e:print(json.dumps({'id':req.get('id'),'error':str(e)},ensure_ascii=False),flush=True)

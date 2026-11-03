@@ -1826,6 +1826,8 @@ async function checkForUpdates() {
     latestVersion,
     updateAvailable,
     downloadUrl: remote.downloadUrl || '',
+    sha256: remote.sha256 || '',
+    size: remote.size || 0,
     notes: remote.notes || [],
     message: updateAvailable ? `Apex ${latestVersion} hazÄ±r.` : 'Apex gÃ¼ncel.'
   };
@@ -2999,6 +3001,17 @@ ipcMain.handle('apex:restore-declarations', (event, input, live) => {
   });
 });
 
+ipcMain.handle('apex:receipt-pairing',async(event,p)=>{
+  if(!require('./restore-sender.cjs')(event,path.join(appRoot(),'index.html')))throw Error('Ofis bağlantısı yalnız Apex ana ekranından eşitlenebilir.');
+  const result=await require('./receipt-pairing.cjs').exchange(path.join(app.getPath('documents'),'Apex','FisAsistani'),p,async c=>{
+    const response=await fetch(c.url+'/api/catalog',{headers:{Authorization:'Bearer '+c.token},signal:AbortSignal.timeout(20000)});
+    if(!response.ok)throw Error('Fiş Asistanı ofis bağlantısı doğrulanamadı ('+response.status+').');
+    const catalog=await response.json();if(!Array.isArray(catalog.clients))throw Error('Ofis yanıtı geçersiz.');
+  });
+  if(result.status==='connected')for(const wc of require('electron').webContents.getAllWebContents())if(wc.getURL().includes('/fis-desktop/index.html'))wc.send('fis:office-ready');
+  return result;
+});
+
 ipcMain.handle('apex:create-backup', (_event, reason, payload = null) => {
   return createBackupFile(reason, payload);
 });
@@ -3223,6 +3236,7 @@ ipcMain.handle('apex:download-and-install-update', async (_event, requested) => 
     if(!update.updateAvailable)throw new Error('Apex zaten güncel. Aynı veya eski sürüm tekrar kurulmayacak.');
     if(String(requested?.latestVersion||requested?.version)!==update.latestVersion)throw new Error('Güncelleme bilgisi değişti. Lütfen yeniden kontrol edin.');
     if(!/^https:\/\//i.test(update.downloadUrl))throw new Error('Güvenli kurulum adresi bulunamadı.');
+    if(!/^[a-f0-9]{64}$/i.test(update.sha256||''))throw new Error('Yayımlanan paketin SHA-256 bilgisi eksik. İndirme başlatılmadı.');
     const target=updateDownloadPath(update.latestVersion);
     partial=target+'.partial';fs.mkdirSync(path.dirname(target),{recursive:true});
     const progress=payload=>{try{_event.sender.send('apex:update-progress',payload)}catch{}};

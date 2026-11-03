@@ -1,6 +1,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('apexDesktop', {
+  receiptPairing: p => ipcRenderer.invoke('apex:receipt-pairing',p),
   phonePause: value => ipcRenderer.invoke('apex:phone-pause',value),
   phoneCode: p => ipcRenderer.invoke('apex:phone-code',p),
   phoneStatus: () => ipcRenderer.invoke('apex:phone-status'),

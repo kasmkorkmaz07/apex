@@ -54,7 +54,7 @@ def parse_qr(raw,kind='gider'):
             value=json.loads(unquote(value))
     except (ValueError,TypeError):return None
     if not isinstance(value,dict):return None
-    p={re.sub(r'[^a-z0-9()%]','',str(k).lower()):v for k,v in value.items()}
+    p={re.sub(r'[^a-z0-9().,%]','',str(k).lower()):v for k,v in value.items()}
     def first(*keys):return next((str(p[k]).strip() for k in keys if p.get(k) is not None),'')
     number=first('no','faturano','evrakno');vkn=first(*(('avkntckn','alicivkn','alicivkntckn') if kind=='gelir' else ('vkntckn','vkn','saticivkn')))
     if not number and not vkn:return None
@@ -68,11 +68,15 @@ def parse_qr(raw,kind='gider'):
     if total:
         try:d['toplam']=str(money(total))
         except ValueError:pass
+    def qr_money(v):
+        value=str(v).strip()
+        if re.fullmatch(r'\d+(?:\.\d+)?',value):return Decimal(value).quantize(Decimal('.01'))
+        return money(v)
     groups={}
     for key,val in p.items():
-        m=re.fullmatch(r'(kdvmatrah|hesaplanankdv)\(?%?(\d+)\)?',key)
+        m=re.fullmatch(r'(kdvmatrah|hesaplanankdv)\(?%?(\d+)(?:[.,]0+)?\)?',key)
         if not m or int(m[2]) not in RATES:continue
-        try:groups.setdefault(int(m[2]),{})[m[1]]=money(val)
+        try:groups.setdefault(int(m[2]),{})[m[1]]=qr_money(val)
         except (ValueError,TypeError):pass
     for rate,row in groups.items():
         base=row.get('kdvmatrah');tax=row.get('hesaplanankdv')

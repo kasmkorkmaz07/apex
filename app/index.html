@@ -2689,7 +2689,7 @@
           <div class="excel-drop">
             <div>
               <strong>Karşı taraftan gelen faturalar / muavin</strong>
-              <span>ZIP/PDF fatura arşivi veya karşı tarafın muavin PDF/Excel çıktısı.</span>
+              <span>PDF/ZIP faturalar, Excel fatura listesi veya muavin çıktısı.</span>
             </div>
             
             
@@ -2700,7 +2700,7 @@
           <div class="excel-drop">
             <div>
               <strong>Bendeki faturalar / Zirve muavin çıktısı</strong>
-              <span>ZIP/PDF fatura arşivi veya Zirve muavin PDF/Excel çıktısı.</span>
+              <span>Zirve PDF faturaları, Excel fatura listesi veya muavin çıktısı.</span>
             </div>
             
             
@@ -2713,7 +2713,7 @@
           <button class="filter" onclick="runInvoiceCompare()">Karşılaştır</button>
           <button class="soft-clear" onclick="clearInvoiceCompare()">Temizle</button>
         </div>
-        <div class="reader-status" id="invoice-compare-status">İki bölüme fatura ZIP/PDF veya muavin PDF/Excel ekleyip karşılaştırın.</div>
+        <div class="reader-status" id="invoice-compare-status">İki tarafa PDF, Excel (XLSX/XLS) veya ZIP ekleyin. Farklı dosya türlerini karşılaştırabilirsiniz.</div>
         <div class="excel-control-summary" id="invoice-compare-summary">
           <div class="excel-control-stats">
             <div class="excel-control-stat"><strong>0</strong><span>Mükellefteki</span></div>
@@ -4424,11 +4424,13 @@ function mergeProfileData(localInput, remoteInput) {
 }
 
 async function baserowFindRow(profile, type) {
-  const url = `${baserowTableUrl()}?user_field_names=true&size=200`;
-  const res = await fetch(url, { headers: { Authorization: `Token ${getBaserowToken()}` } });
-  if (!res.ok) throw await responseError('Baserow listeleme hatasi', res);
-  const data = await res.json();
-  const rows = data.results || [];
+  const rows=[];let page=1;
+  while(true){
+    const url=`${baserowTableUrl()}?user_field_names=true&size=200&page=${page}`;
+    const res=await fetch(url,{headers:{Authorization:`Token ${getBaserowToken()}`}});
+    if(!res.ok)throw await responseError('Baserow listeleme hatasi',res);
+    const data=await res.json();rows.push(...(data.results||[]));if(!data.next)break;page++;
+  }
   const matches = rows.filter(row => row.profile === profile && row.beyanname_type === type);
   if (matches.length === 0) return null;
   for (const row of matches) {
@@ -4547,10 +4549,23 @@ async function parseRemoteApexSettings(raw) {
   return await decodeSyncDataFromBaserow(raw, null);
 }
 
+async function syncReceiptOffice(){
+  if(!window.apexDesktop?.receiptPairing||isLocalSyncConfigured()||!getBaserowTableId()||!getBaserowToken())return;
+  const profile='__apex_fis_office_v1__',type='__connection__',args={scope:String(getBaserowTableId()),secret:getBaserowToken()};
+  let row=await baserowReadRow(profile,type),payload=row?await decodeSyncDataFromBaserow(row.data,null):null;
+  if(payload?.envelope){await window.apexDesktop.receiptPairing({...args,envelope:payload.envelope});return;}
+  const local=await window.apexDesktop.receiptPairing(args);if(local.status!=='publish')return;
+  row=await baserowEnsureRow(profile,type);payload=await decodeSyncDataFromBaserow(row.data,null);
+  if(payload?.envelope){await window.apexDesktop.receiptPairing({...args,envelope:payload.envelope});return;}
+  const res=await fetch(`${baserowTableUrl()}${row.id}/?user_field_names=true`,{method:'PATCH',headers:baserowHeaders(),body:JSON.stringify({profile,beyanname_type:type,data:JSON.stringify({kind:'apex-fis-office',version:1,envelope:local.envelope})})});
+  if(!res.ok)throw await responseError('Fiş Asistanı bağlantı eşitlemesi',res);
+}
+
 async function syncApexSettingsRemote({ pushIfMissing = true } = {}) {
   if (!isAnySyncConfigured() || settingsSyncing) return false;
   settingsSyncing = true;
   try {
+    await syncReceiptOffice();
     lastSettingsSyncAt = Date.now();
     const remotePayload = await parseRemoteApexSettings(await readRemoteApexSettings());
     if (!isAnySyncConfigured()) return false;

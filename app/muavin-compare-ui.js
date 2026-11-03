@@ -8,18 +8,20 @@ style.textContent='.muavin-result-row{display:flex!important;flex-direction:colu
 document.head.append(style);
 async function readWorkbook(file){
  if(!window.XLSX)throw Error('Excel okuyucu yüklenemedi. Apex’i yeniden açın.');
- const wb=XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:true,cellText:true});
+ const wb=XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:false,cellText:true});
  let recognized=false;const records=[];
  for(const sheetName of wb.SheetNames){
   const sheet=wb.Sheets[sheetName],rows=XLSX.utils.sheet_to_json(sheet,{header:1,raw:true,defval:'',range:0});let cols=null;
-  rows.forEach((row,index)=>{const found=M.columns(row);if(found){cols=found;return}if(!cols)return;
+  rows.forEach((row,index)=>{const found=M.invoiceReportColumns(row)||M.columns(row);if(found){cols=found;return}if(!cols)return;
    const when=row[cols.date];if(typeof when==='number'){const d=XLSX.SSF.parse_date_code(when,{date1904:!!wb.Workbook?.WBProps?.date1904});row[cols.date]=d?`${d.y}-${String(d.m).padStart(2,'0')}-${String(d.d).padStart(2,'0')}`:'';}
    const noCell=sheet[XLSX.utils.encode_cell({r:index,c:cols.no})];if(noCell?.t==='n')row[cols.no]=noCell.w||String(noCell.v);
   });
-  const parsed=M.sheetRows(rows,{fileName:file.name,sheetName});recognized ||= parsed.recognized;records.push(...parsed.records);
+  const meta={fileName:file.name,sheetName};
+  const report=M.invoiceReportRows(rows,meta);
+  const parsed=report.recognized?report:M.sheetRows(rows,meta);recognized ||= parsed.recognized;records.push(...parsed.records);
  }
- if(!recognized)throw Error('Muavin sütunları bulunamadı: EVR. TAR. / EVRAK TARİHİ, EVRAK NO ve AÇIKLAMA gerekli.');
- if(!records.length)throw Error('Muavin başlıkları bulundu ancak karşılaştırılacak kayıt okunamadı.');
+ if(!recognized)throw Error('Fatura listesinde Fatura No, Fatura Tarihi ve Cari Adı / Unvan sütunları; muavinde Evrak No, Evrak Tarihi ve Açıklama sütunları gerekli.');
+ if(!records.length)throw Error('Başlıklar bulundu ancak karşılaştırılacak kayıt okunamadı.');
  return records;
 }
 async function detectLedgerPdf(file){
