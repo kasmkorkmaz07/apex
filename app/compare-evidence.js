@@ -96,10 +96,13 @@ M.compare=function(source,target){const s=summarize(source),t=summarize(target),
  if(candidates.length!==1||s.rows.filter(r=>M.number(r.invoiceNo)===M.number(inv.invoiceNo)).length!==1){review.push({invoice:inv,candidates,invoiceNo:inv.invoiceNo,reasons:['Aynı numarada birden fazla farklı kayıt var; tek belge olarak doğrulanamadı']});continue;}
  const target=candidates[0],amount=amountPair(inv,target),notes=[],reasons=[];const sameParty=M.partyMatches(inv.counterpartyName,target.counterpartyName),sameDate=!!M.date(inv.invoiceDate)&&M.date(inv.invoiceDate)===M.date(target.invoiceDate);
  if(!sameDate)reasons.push(!inv.invoiceDate||!target.invoiceDate?'Belge tarihi eksik':'Belge tarihi farklı');
- if(!sameParty)reasons.push(!inv.counterpartyName||!target.counterpartyName?'Firma adı eksik veya okunamadı':'Firma adı farklı');else if(key(inv.counterpartyName)!==key(target.counterpartyName))notes.push('Unvan kısaltması / yazım farkı kabul edildi');
+ if(!key(inv.counterpartyName)||!key(target.counterpartyName))notes.push('Firma adı eksik veya okunamadı; firma adı doğrulanamadı');
+ else if(!sameParty)reasons.push('Firma adı farklı');
+ else if(key(inv.counterpartyName)!==key(target.counterpartyName))notes.push('Unvan kısaltması / yazım farkı kabul edildi');
  if(inv.vkn&&target.vkn&&inv.vkn!==target.vkn)reasons.push('Karşı firma VKN/TCKN farklı');
  if(amount.conflict)reasons.push(amount.reason);else if(amount.checked&&!amount.equal)reasons.push(amount.basis==='payable'?'Net tutar farklı':'Faturadaki esas tutar ile muavin Alacak tutarı farklı');else if(!amount.checked)reasons.push('Tutar doğrulanamadı: '+amount.reason);
  const row={invoice:inv,target,candidates,invoiceNo:inv.invoiceNo,amount,notes,reasons,matchBasis:reasons.length?'Belge numarası bulundu; aşağıdaki bilgiler uyuşmuyor':amount.basis==='payable'?'Fatura numarası, tarih, firma ve net tutar eşleşti':'Fatura numarası, tarih, firma ve muavin için esas alınan tutar eşleşti'};
+ if(!reasons.length&&!sameParty)row.matchBasis='Belge numarası, tarih ve tutar eşleşti; firma adı doğrulanamadı';
  if(reasons.length)review.push(row);else matched.push(row);
  }for(const r of t.rows)if(!seen.has(r))extra.push({invoice:r,invoiceNo:r.invoiceNo});for(const [rows,label]of [[s.unidentified,'Gelen kayıtta'],[t.unidentified,'Bendeki kayıtta']])for(const r of rows)review.push({invoice:r,invoiceNo:'Numara okunamadı',candidates:[],reasons:[label+' evrak numarası yok']});return {mode:'muavin',sourceCount:s.rows.length,targetCount:t.rows.length,missing,extra,matched,review,rawSourceCount:source.length,rawTargetCount:target.length};};
 Object.assign(M,{money,enrichInvoice,enrichPdfInvoice,positionedMoney,amountPair,ledgerMeta});if(typeof module!=='undefined')module.exports=M;

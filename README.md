@@ -1,7 +1,7 @@
 # Apex
 Apex muhasebe programı ve masaüstü Fiş Asistanı kaynak kodları.
 
-Güncel sürüm: 1.0.150. Değişiklikler: [sürüm notları](SURUM-1.0.150.md).
+Güncel sürüm: 1.0.151. Değişiklikler: [sürüm notları](SURUM-1.0.151.md).
 
 Kurulum dosyası GitHub Releases bölümündedir. Eski sürümde SHA-256 bilgisi yok hatası çıkıyorsa yeni kurulumu bir kez elle çalıştırın.
 

@@ -2860,7 +2860,7 @@
 <section class="sec"><h3><b>2</b>Kaynak</h3><div class="tg-check-grid"><label class="tg-check"><input type="checkbox" id="tg-src-t"> Tahakkuk</label><label class="tg-check"><input type="checkbox" id="tg-src-b"> Beyanname</label></div><p class="td-hint">Kaynak seçilmezse dosyaları elle seçebilirsiniz.</p></section>
 <section class="sec"><h3><b>3</b>Türler</h3><div id="tg-code-checks"><div class="cr"><label class="tg-check"><input type="checkbox" data-tg-code="KDV1"> KDV1</label><label class="tg-check"><input type="checkbox" data-tg-code="KDV2"> KDV2</label><label class="tg-check"><input type="checkbox" data-tg-code="KDV4"> KDV4</label></div><div class="cr"><label class="tg-check"><input type="checkbox" data-tg-code="MUHSGK"> MUHSGK</label><label class="tg-check"><input type="checkbox" data-tg-code="EBILDIRGE"> E-Bildirge</label><label class="tg-check"><input type="checkbox" data-tg-code="HIZMET_LISTESI"> Hizmet Listesi</label></div><div class="cr"><label class="tg-check"><input type="checkbox" data-tg-code="GGECICI"> GGEÇİCİ</label><label class="tg-check"><input type="checkbox" data-tg-code="GELIR"> Gelir</label><label class="tg-check"><input type="checkbox" data-tg-code="KURUMLAR"> Kurumlar</label><label class="tg-check"><input type="checkbox" data-tg-code="KGECICI"> KGEÇİCİ</label></div><div class="cr"><label class="tg-check"><input type="checkbox" data-tg-code="VERGI_LEVHASI"> Vergi Levhası</label></div></div></section>
 <section class="sec"><h3><b>4</b>Klasörleme</h3><div class="fr"><div><label class="f" for="tg-folder-target">Klasörleme hedefi</label><input class="in" id="tg-folder-target" placeholder="Kayıt klasörünü seçin" onchange="tdSavePaths()"></div><button  class="btn " onclick="tdRunAction(()=>tgChooseFolderTarget(),this)">Seç</button></div></section>
-<section class="sec"><h3><b>5</b>Zamanlama ve mesaj</h3><div class="row"><div><label class="f" for="tg-schedule-date">Zamanlı tarih</label><input class="in" id="tg-schedule-date" type="date"></div><div><label class="f" for="tg-schedule-time">Saat</label><input class="in" id="tg-schedule-time" type="time"></div></div><label class="f" for="tg-message" style="margin-top:10px">Mesaj</label><textarea class="in" id="tg-message" placeholder="Boş bırakılabilir"></textarea></section>
+<section class="sec"><h3><b>5</b>Zamanlama ve mesaj</h3><div class="row"><div><label class="f" for="tg-schedule-date">Zamanlı tarih</label><input class="in" id="tg-schedule-date" type="date"></div><div><label class="f" for="tg-schedule-time">Saat</label><input class="in" id="tg-schedule-time" type="time"></div></div><label class="f"><input type="checkbox" id="tg-message-only"> Yalnızca mesaj gönder (dosyasız)</label><label class="f" for="tg-message" style="margin-top:10px">Mesaj</label><textarea class="in" id="tg-message" placeholder="Boş bırakılabilir"></textarea></section>
 </aside>
 <main class="card">
 <div class="stats"><div class="stat"><b id="td-total">0</b><span>Toplam mükellef</span></div><div class="stat"><b id="td-selected">0</b><span>Seçili</span></div><div class="stat"><b id="td-scheduled">0</b><span>Zamanlanan</span></div></div>
@@ -8970,7 +8970,7 @@ function tgRenderSchedules() {
         <span class="tg-schedule-status ${tgScheduleStatusClass(schedule.status)}">${escapeHtml(tgScheduleStatusText(schedule.status))}</span>
       </div>
       <div class="tg-schedule-meta">${escapeHtml(recipients || 'Alıcı yok')} • ${schedule.jobs?.length || 0} sohbet • ${files.length} dosya</div>
-      <div class="tg-schedule-files">${escapeHtml(files.slice(0, 8).join(', ') || 'Dosya yok')}${files.length > 8 ? escapeHtml(`, ... ${files.length - 8} dosya daha`) : ''}</div>
+      <div class="tg-schedule-files">${escapeHtml(files.slice(0, 8).join(', ') || 'Yalnızca mesaj')}${files.length > 8 ? escapeHtml(`, ... ${files.length - 8} dosya daha`) : ''}</div>
       ${schedule.cancelReason ? `<div class="tg-schedule-meta">${escapeHtml(schedule.cancelReason)}</div>` : ''}
       <div class="tg-schedule-actions">
         ${pending ? `<button onclick="tgAddFilesToSchedule('${escapeAttr(schedule.id)}')">Ekle</button><button onclick="tgEditScheduleTime('${escapeAttr(schedule.id)}')">Düzenle</button><button class="danger" onclick="tgCancelSchedule('${escapeAttr(schedule.id)}')">İptal</button>` : ''}
@@ -9467,6 +9467,8 @@ async function tgClearSelections() {
   if (monthAll) monthAll.checked = false;
   const message = document.getElementById('tg-message');
   if (message) message.value = '';
+  const messageOnly = document.getElementById('tg-message-only');
+  if (messageOnly) messageOnly.checked = false;
   tgRenderYearOptions();
   tgSelectCurrentYear();
   const beforeSchedules = tgSchedules().length;
@@ -9482,6 +9484,31 @@ async function tgClearSelections() {
 }
 
 async function tgBuildSendJobs(options = {}) {
+  if (document.getElementById('tg-message-only')?.checked) {
+    const message = String(document.getElementById('tg-message')?.value || '').trim();
+    if (!message) {
+      await appAlert('Dosyasız gönderim için mesaj yazın.', 'Tahakkuk Gönder');
+      return null;
+    }
+    const recipients = tgStore.specialOpen
+      ? tgSelectedRecipients()
+      : tgSelectedClients().map(client => ({ Ad: client.Unvan, Telefon: client.Telefon }));
+    const jobs = new Map();
+    for (const recipient of recipients) {
+      try {
+        const phone = tgPhone(recipient.Telefon);
+        jobs.set(phone, { phone, name: recipient.Ad, clients: [], files: [], message });
+      } catch (error) {
+        await appAlert((recipient.Ad || 'Alıcı') + ': telefon numarası hatalı.', 'Tahakkuk Gönder');
+        return null;
+      }
+    }
+    if (!jobs.size) {
+      await appAlert('Mesaj göndermek için firma veya özel kişi seçin.', 'Tahakkuk Gönder');
+      return null;
+    }
+    return { jobs: [...jobs.values()], scan: [] };
+  }
   const scan = await tgScanSelected({ warnMissing: false });
   if (!scan?.length) return null;
   const targets = tgStore.specialOpen ? tgSelectedRecipients() : [];

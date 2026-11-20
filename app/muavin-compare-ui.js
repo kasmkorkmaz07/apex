@@ -3,6 +3,7 @@
 'use strict';
 const M=window.MuavinCompare;
 let resultFilter='all';
+let resultSearch='', resultFrom='', resultTo='';
 const style=document.createElement('style');
 style.textContent='.muavin-result-row{display:flex!important;flex-direction:column;align-items:stretch;gap:6px;min-width:0}.muavin-result-row>*{min-width:0;overflow-wrap:anywhere}.muavin-result-row button{align-self:flex-start}.muavin-summary .excel-control-stats{grid-template-columns:repeat(3,minmax(0,1fr))}';
 document.head.append(style);
@@ -84,17 +85,37 @@ function location(inv){return [inv.fileName,inv.sheetName?`${inv.sheetName} / sa
 function preview(inv){return inv.fileUrl?`<button class="icon-btn eye-btn" onclick="openInvoicePdf('${escapeAttr(inv.fileUrl)}',${Number(inv.pageNumber||1)},'${escapeAttr(inv.pdfStoreId||'')}')" title="Kaynağı görüntüle">${eyeIcon()}</button>`:'';}
 const originalRender=window.renderInvoiceCompareResult;
 window.renderInvoiceCompareResult=function(){
- const r=invoiceCompareState.result;document.getElementById('invoice-compare-summary')?.classList.toggle('muavin-summary',r?.mode==='muavin');if(r?.mode!=='muavin')return originalRender();
+ const r=invoiceCompareState.result;document.getElementById('invoice-compare-summary')?.classList.toggle('muavin-summary',r?.mode==='muavin');
+ if(r?.mode!=='muavin'){document.getElementById('muavin-result-controls')?.remove();return originalRender();}
  const summary=document.querySelector('#invoice-compare-summary .excel-control-stats'),list=document.getElementById('invoice-compare-results');if(!summary||!list)return;
- summary.innerHTML=[[r.sourceCount,'Gelen kayıtlar'],[r.targetCount,'Bendeki kayıtlar'],[r.matched.length,'Eşleşen (gizli)'],[r.missing.length,'Bende yok'],[r.review.length,'Bilgi / tutar farkı'],[r.extra.length,'Yalnızca bende']].map(([count,label])=>`<div class="excel-control-stat"><strong>${count}</strong><span>${label}</span></div>`).join('');
- const controls=`<div class="package-actions"><label>Göster <select id="muavin-result-filter">${[['all','Tüm eksik ve farklı kayıtlar'],['missing','Bendeki kayıtlarda bulunamayanlar'],['review','Bilgi / tutar farkları'],['extra','Yalnızca bende olanlar']].map(([v,label])=>`<option value="${v}" ${v===resultFilter?'selected':''}>${label}</option>`).join('')}</select></label></div><p class="package-note">Dosyalar otomatik tanınır. İki taraf da faturaysa net ödenecek tutarlar karşılaştırılır. Fatura–muavin karşılaştırmasında tevkifatlı faturanın Tevkifata Tabi İşlem Tutarı, diğer faturanın Mal Hizmet Toplam Tutarı muavinin Alacak sütunuyla karşılaştırılır. İlgili satır eksikse başka tutara geçilmez. Tarih, numara ve firma da kontrol edilir; unvan kısaltmaları kabul edilir (tutar toleransı 1 kuruş). Yalnızca eksik ve farklı kayıtlar gösterilir. Muavin para birimi belirtilmemişse TL kabul edilir.</p>`;
- const groups=[['review',r.review,'Bilgi / tutar farkı'],['missing',r.missing,'Bendeki kayıtlarda bulunamadı'],['extra',r.extra,'Bende var, karşı tarafta yok']];
- const rows=groups.filter(([type])=>resultFilter==='all'||type===resultFilter).flatMap(([type,rows,label])=>rows.map(row=>{
+ summary.innerHTML=[[r.sourceCount,'Gelen kayıtlar'],[r.targetCount,'Bendeki kayıtlar'],[r.matched.length,'Eşleşen'],[r.missing.length,'Bende yok'],[r.review.length,'Bilgi / tutar farkı'],[r.extra.length,'Yalnızca bende']].map(([count,label])=>`<div class="excel-control-stat"><strong>${count}</strong><span>${label}</span></div>`).join('');
+ let filterBox=document.getElementById('muavin-result-controls');
+ if(!filterBox){
+  filterBox=document.createElement('div');filterBox.id='muavin-result-controls';
+  filterBox.style.cssText='display:flex;flex-wrap:wrap;gap:10px;margin:12px 0;flex-shrink:0';
+  list.before(filterBox);
+ }
+ const focused=document.activeElement?.id, caret=document.activeElement?.selectionStart;
+ filterBox.innerHTML=`<label>Durum <select id="muavin-result-filter">${[['all','Eksik ve farklı kayıtlar'],['missing','Bende yok'],['review','Bilgi / tutar farkı'],['extra','Yalnızca bende'],['matched','Eşleşen kayıtlar']].map(([value,label])=>`<option value="${value}" ${value===resultFilter?'selected':''}>${label}</option>`).join('')}</select></label><label>Ara <input id="muavin-result-search" type="search" placeholder="Fatura no, firma veya VKN" value="${escapeAttr(resultSearch)}"></label><label>Başlangıç <input id="muavin-result-from" type="date" value="${escapeAttr(resultFrom)}"></label><label>Bitiş <input id="muavin-result-to" type="date" value="${escapeAttr(resultTo)}"></label><button id="muavin-filter-clear" type="button">Filtreleri temizle</button><span id="muavin-filter-count" aria-live="polite"></span>`;
+ const groups=[['review',r.review,'Bilgi / tutar farkı'],['missing',r.missing,'Bendeki kayıtlarda bulunamadı'],['extra',r.extra,'Bende var, karşı tarafta yok'],['matched',r.matched,'Eşleşen kayıt']];
+ const query=resultSearch.trim().toLocaleLowerCase('tr-TR');
+ const rows=groups.filter(([type])=>resultFilter==='all'?type!=='matched':type===resultFilter).flatMap(([type,rows,label])=>rows.filter(row=>{
+  const records=[row.invoice,...(row.candidates||[row.target].filter(Boolean))];
+  const searchable=records.map(inv=>[inv.invoiceNo,inv.counterpartyName,inv.vkn].join(' ')).join(' ').toLocaleLowerCase('tr-TR');
+  const date=row.invoice.invoiceDate||'';
+  return (!query||searchable.includes(query))&&(!resultFrom||date>=resultFrom)&&(!resultTo||(!!date&&date<=resultTo));
+ }).map(row=>{
   const targets=row.candidates||[row.target].filter(Boolean);
   return `<div class="excel-missing-row invoice-compare-result-row muavin-result-row"><strong>${escapeHtml(label)} · ${escapeHtml(row.invoiceNo)}</strong><span>${escapeHtml(info(row.invoice))}</span><small>${escapeHtml(amountInfo(row.invoice,row.target||targets[0]))}</small>${comparisonDetail(row)}<small>${escapeHtml(location(row.invoice))}</small>${preview(row.invoice)}${row.reasons?.length?`<span style="color:var(--danger,#b45309)">${escapeHtml(row.reasons.join(' · '))}</span>`:''}${targets.map(t=>`<span>Bendeki kayıt: ${escapeHtml(info(t))}</span><small>${escapeHtml(amountInfo(t,row.invoice))}</small><small>${escapeHtml(location(t))}${t.references?.length>1?` · ${t.references.length} kayıt satırı`:''}</small>${preview(t)}`).join('')}</div>`;
  }));
- list.innerHTML=controls+(rows.join('')||'<div class="timeline-item">'+(resultFilter==='all'?'Eksik veya farklı kayıt bulunmadı. Eşleşen kayıtlar gizlendi.':'Bu grupta kayıt yok.')+'</div>');
+ list.innerHTML=rows.join('')||'<div class="timeline-item">Seçilen filtrelere uygun kayıt yok.</div>';
+ document.getElementById('muavin-filter-count').textContent=rows.length+' kayıt gösteriliyor';
  document.getElementById('muavin-result-filter').onchange=e=>{resultFilter=e.target.value;renderInvoiceCompareResult();};
+ document.getElementById('muavin-result-search').oninput=e=>{resultSearch=e.target.value;renderInvoiceCompareResult();};
+ document.getElementById('muavin-result-from').onchange=e=>{resultFrom=e.target.value;renderInvoiceCompareResult();};
+ document.getElementById('muavin-result-to').onchange=e=>{resultTo=e.target.value;renderInvoiceCompareResult();};
+ document.getElementById('muavin-filter-clear').onclick=()=>{resultFilter='all';resultSearch='';resultFrom='';resultTo='';renderInvoiceCompareResult();};
+ if(focused==='muavin-result-search'){const input=document.getElementById(focused);input.focus();if(caret!==null)input.setSelectionRange(caret,caret);}
 };
 const originalClientRender=window.renderInvoiceCompare;
 window.renderInvoiceCompare=function(){originalClientRender();for(const side of ['source','target']){const rows=invoiceCompareState[side],el=document.getElementById(`invoice-compare-${side}-name`);if(el&&rows.some(r=>r.sourceKind==='zirve-muavin'))el.textContent=`${rows.length} fatura / muavin kaydı okundu`;}};

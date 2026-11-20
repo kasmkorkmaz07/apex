@@ -1,16 +1,15 @@
 {
   "name": "Apex",
-  "version": "1.0.150",
-  "latestVersion": "1.0.150",
+  "version": "1.0.151",
+  "latestVersion": "1.0.151",
   "updateManifestUrl": "https://api.github.com/repos/kasmkorkmaz07/apex/releases/latest",
   "downloadUrl": "https://github.com/kasmkorkmaz07/apex/releases/latest",
   "channel": "stable",
   "dataFolder": "Documents/Apex",
   "strategy": "Test on the development computer first, then publish the portable or installer package without replacing user data.",
   "notes": [
-    "Güncelleme doğrulama bilgisi kurulum aşamasına doğru aktarılır.",
-    "Aynı Apex senkron bağlantısındaki bilgisayarlar Fiş Asistanı ofis bağlantısını şifreli paylaşır.",
-    "Yeniden yüklenen faturaların silinmiş bulut kaydına takılması düzeltildi.",
-    "Güncel masaüstü tasarımı, Excel tarih sıralaması ve belge işleme düzeltmeleri dahildir."
+    "Tekil belge numarası, tarih ve tutar eşleştiğinde eksik firma adı hata yerine doğrulanamayan bilgi olarak gösterilir. Gerçek firma, VKN, tarih ve tutar farkları kontrol edilmeye devam eder.",
+    "Fatura karşılaştırmasına durum, fatura numarası / firma / VKN araması ve tarih aralığı filtreleri eklendi. Eşleşen kayıtlar ayrıca görüntülenebilir.",
+    "Tahakkuk Gönder bölümüne dosyasız yalnızca mesaj seçeneği eklendi. Anlık ve zamanlı gönderimler desteklenir."
   ]
 }

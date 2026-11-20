@@ -17,7 +17,6 @@ app.on('second-instance',(_event,args)=>{if(args.includes('--fis-asistani'))requ
 const READER_PORT = 8765;
 const SYNC_PORT = 8788;
 const DEFAULT_UPDATE_MANIFEST_URL = 'https://api.github.com/repos/kasmkorkmaz07/apex/releases/latest';
-const PROFILE_PASSWORD_HASH = 'c371fdf89b42ef241ac9de343e0040bd2798f1db39dc525b4dd5934c7dde5d56';
 let readerProcess = null;
 let syncServer = null;
 let gibWindow = null;
@@ -2492,8 +2491,8 @@ ipcMain.handle('apex:tahakkuk-send', async (_event, request = {}) => {
     clients: job.clients || [],
     files: [...new Set(job.files || [])],
     message: String(job.message || '')
-  })).filter(job => job.files.length);
-  if (!jobs.length) throw new Error('Gönderilecek belge yok.');
+  })).filter(job => job.files.length || job.message.trim());
+  if (!jobs.length) throw new Error('Gönderilecek dosya veya mesaj yok.');
 
   const temp = path.join(os.tmpdir(), 'ApexTahakkukGonder');
   fs.mkdirSync(temp, { recursive: true });
@@ -2620,11 +2619,13 @@ foreach ($job in $jobs) {
     [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
     Start-Sleep -Milliseconds 500
   }
-  Set-FileClipboard $job.files
-  [System.Windows.Forms.SendKeys]::SendWait("^v")
-  Start-Sleep -Seconds 3
-  [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
-  Start-Sleep -Seconds 2
+  if (@($job.files).Count -gt 0) {
+    Set-FileClipboard $job.files
+    [System.Windows.Forms.SendKeys]::SendWait("^v")
+    Start-Sleep -Seconds 3
+    [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
+    Start-Sleep -Seconds 2
+  }
   Start-Sleep -Seconds 3
 }
 `, 'utf8');
@@ -3038,8 +3039,16 @@ ipcMain.handle('apex:check-update', async () => {
 });
 
 ipcMain.handle('apex:verify-profile-password', async (_event, password) => {
-  const hash = crypto.createHash('sha256').update(String(password || ''), 'utf8').digest('hex');
-  return hash === PROFILE_PASSWORD_HASH;
+  if (typeof password !== 'string' || !password) return false;
+  const reg = path.join(process.env.SystemRoot, 'System32', 'reg.exe');
+  const args = ['query', 'HKLM\\SOFTWARE\\Apex\\ProfileAuth', '/v', 'Verifier', '/reg:64'];
+  const verifier = await new Promise(resolve => {
+    require('child_process').execFile(reg, args, {windowsHide: true, timeout: 5000}, (error, stdout) => {
+      const match = !error && /^\s*Verifier\s+REG_SZ\s+([a-f0-9]{64})\s*$/im.exec(stdout);
+      resolve(match ? Buffer.from(match[1], 'hex') : null);
+    });
+  });
+  return Boolean(verifier && crypto.timingSafeEqual(crypto.createHash('sha256').update(password, 'utf8').digest(), verifier));
 });
 
 ipcMain.handle('apex:open-update-url', async (_event, url) => {
